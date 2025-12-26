@@ -24,8 +24,18 @@ struct Cli {
 }
 
 sol! {
+    #[sol(rpc)]
     contract Morpho {
         type Id is bytes32;
+
+        struct Market {
+            uint128 totalSupplyAssets;
+            uint128 totalSupplyShares;
+            uint128 totalBorrowAssets;
+            uint128 totalBorrowShares;
+            uint128 lastUpdate;
+            uint128 fee;
+        }
 
         struct MarketParams {
             address loanToken;
@@ -36,6 +46,8 @@ sol! {
         }
 
         event CreateMarket(Id indexed id, MarketParams marketParams);
+
+        function market(bytes32 market) returns (Market);
     }
 }
 
@@ -50,7 +62,7 @@ async fn main() -> anyhow::Result<()> {
     let current_block = provider.get_block_number().await?;
 
     #[derive(PartialEq, Eq, PartialOrd, Ord)]
-    struct Market {
+    struct MarketParams {
         id: FixedBytes<32>,
         collateral_token: String,
         loan_token: String,
@@ -88,7 +100,7 @@ async fn main() -> anyhow::Result<()> {
                             .add(loan.symbol())
                             .aggregate()
                             .await?;
-                        let _ = tx.send(Market {
+                        let _ = tx.send(MarketParams {
                             id: market.id,
                             collateral_token: collateral,
                             loan_token: loan,
@@ -108,19 +120,33 @@ async fn main() -> anyhow::Result<()> {
 
     let mut markets = vec![];
     while let Some(create_market) = rx.recv().await {
-        markets.push(create_market);
+        markets.push((create_market, None));
     }
 
-    markets.sort();
+    let morpho = Morpho::new(args.contract_address, provider);
+    for (params, market) in markets.iter_mut() {
+        let data = morpho.market(params.id).call().await?;
+        *market = Some(data);
+    }
 
-    for market in markets {
+    markets.sort_by(|(_, a), (_, b)| {
+        a.as_ref()
+            .unwrap()
+            .totalBorrowAssets
+            .cmp(&b.as_ref().unwrap().totalBorrowAssets)
+    });
+
+    for (params, market) in markets {
+        let market = market.unwrap();
         println!("------------");
-        println!("market: {}", market.id);
-        println!("collateral: {}", market.collateral_token);
-        println!("loan token: {}", market.loan_token);
-        println!("oracle: {}", market.oracle);
-        println!("irm: {}", market.irm);
-        println!("LLTV: {}", market.lltv);
+        println!("market: {}", params.id);
+        println!("collateral: {}", params.collateral_token);
+        println!("loan token: {}", params.loan_token);
+        println!("oracle: {}", params.oracle);
+        println!("irm: {}", params.irm);
+        println!("LLTV: {}", params.lltv);
+        println!("borrowed: {}", market.totalBorrowAssets);
+        println!("supplied: {}", market.totalSupplyAssets);
     }
 
     Ok(())

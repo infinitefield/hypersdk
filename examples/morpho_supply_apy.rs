@@ -25,7 +25,6 @@ struct Cli {
 }
 
 sol! {
-    #[derive(Debug)]
     struct MarketParams {
         address loanToken;
         address collateralToken;
@@ -34,7 +33,6 @@ sol! {
         uint256 lltv;
     }
 
-    #[derive(Debug)]
     struct Market {
         uint128 totalSupplyAssets;
         uint128 totalSupplyShares;
@@ -81,13 +79,18 @@ async fn main() -> anyhow::Result<()> {
 
     let market_params = morpho.idToMarketParams(args.market_id).call().await?;
 
+    let utilization = market.totalBorrowAssets as f64 / market.totalSupplyAssets as f64;
+    let fee = market.fee as f64 / 1e18;
+
     let rate = irm.borrowRateView(market_params, market).call().await?;
-    println!("borrowing rate is {rate}");
+    println!("borrowing rate is {rate}, utilization {utilization}");
 
     let rate = rate.to::<u64>() as f64 / 1e18;
 
-    let final_rate = std::f64::consts::E.powf(rate * 31_536_000f64);
-    println!("interest rate is {}", (final_rate - 1.0) * 100.0);
+    let borrow_apy = (rate * 31_536_000f64).exp() - 1.0;
+    let supply_apy = borrow_apy * utilization * (1.0 - fee);
+    println!("borrow APY is {}", borrow_apy * 100.0);
+    println!("supply APY is {}", supply_apy * 100.0);
 
     Ok(())
 }
