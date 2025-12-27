@@ -59,6 +59,7 @@ sol! {
         bytes32[] public supplyQueue;
 
         function MORPHO() external view returns (address);
+        function fee() returns (uint96);
         function supplyQueueLength() external view returns (uint256);
         function config(bytes32 market) returns (MarketConfig);
     }
@@ -83,6 +84,7 @@ async fn main() -> anyhow::Result<()> {
     let provider = DynProvider::new(hyperevm::mainnet_with_url(&args.rpc_url).await?);
 
     let meta_morpho = MetaMorpho::new(args.contract_address, provider.clone());
+    let fee = meta_morpho.fee().call().await?.to::<u64>() as f64 / 1e18;
     let morpho = Morpho::new(meta_morpho.MORPHO().call().await?, provider.clone());
     let supply_queue_len = meta_morpho.supplyQueueLength().call().await?.to::<usize>();
 
@@ -150,7 +152,7 @@ async fn main() -> anyhow::Result<()> {
         apy += supplied_assets * supply_apy / total_deposits;
     }
 
-    println!("apy: {}", apy * 100.0);
+    println!("apy: {}", apy * (1.0 - fee) * 100.0);
 
     Ok(())
 }
