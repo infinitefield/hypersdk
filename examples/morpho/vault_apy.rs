@@ -142,11 +142,11 @@ async fn main() -> anyhow::Result<()> {
         let supply_apy = borrow_apy * utilization * (1.0 - fee);
 
         println!(
-            "{loan} / {collateral}: supplied_assets={}, total_assets={}, allocated={}, utilization={}",
+            "{loan} / {collateral}: supplied_assets={:.2}, total_assets={}, allocated={:.2}, utilization={:.1}%",
             supplied_assets,
             total_assets,
             supplied_assets / total_deposits * 100.0,
-            utilization
+            utilization * 100.0
         );
 
         apy += supplied_assets * supply_apy / total_deposits;

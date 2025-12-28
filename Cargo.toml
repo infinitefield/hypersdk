@@ -13,21 +13,86 @@ keywords = ["hyperliquid", "sdk", "trading", "dex", "perps"]
 documentation = "https://github.com/infinitefield/hypersdk"
 rust-version = "1.85.0"
 
-## Packaging: control what gets published to crates.io
-# Use a minimal allowlist to keep the crate small.
 include = [
   "src/**",
   "README.md",
   "LICENSE*",
   "Cargo.toml",
 ]
-# Exclude CI, examples, and tests from the package tarball.
 exclude = [
   "/.github/*",
   "/examples/*",
   "/tests/*",
   "/.gitignore",
 ]
+
+[[example]]
+name = "buy_and_transfer"
+path = "examples/hypercore/buy_and_transfer.rs"
+
+[[example]]
+name = "list_markets"
+path = "examples/hypercore/list-markets.rs"
+
+[[example]]
+name = "list_tokens"
+path = "examples/hypercore/list-tokens.rs"
+
+[[example]]
+name = "send_order"
+path = "examples/hypercore/send_order.rs"
+
+[[example]]
+name = "send_usd"
+path = "examples/hypercore/send_usd.rs"
+
+[[example]]
+name = "transfer_from_evm"
+path = "examples/hypercore/transfer_from_evm.rs"
+
+[[example]]
+name = "transfer_to_evm"
+path = "examples/hypercore/transfer_to_evm.rs"
+
+[[example]]
+name = "transfer_to_perps"
+path = "examples/hypercore/transfer_to_perps.rs"
+
+[[example]]
+name = "transfer_to_spot"
+path = "examples/hypercore/transfer_to_spot.rs"
+
+[[example]]
+name = "morpho_borrow_apy"
+path = "examples/morpho/borrow_apy.rs"
+
+[[example]]
+name = "morpho_create_market_events"
+path = "examples/morpho/create_market_events.rs"
+
+[[example]]
+name = "morpho_events"
+path = "examples/morpho/events.rs"
+
+[[example]]
+name = "morpho_highest_apy"
+path = "examples/morpho/highest_apy.rs"
+
+[[example]]
+name = "morpho_supply_apy"
+path = "examples/morpho/supply_apy.rs"
+
+[[example]]
+name = "morpho_vault_apy"
+path = "examples/morpho/vault_apy.rs"
+
+[[example]]
+name = "uniswap_pools_created"
+path = "examples/uniswap/pools_created.rs"
+
+[[example]]
+name = "uniswap_prjx_flows"
+path = "examples/uniswap/prjx_flows.rs"
 
 ## Documentation (docs.rs) configuration
 [package.metadata.docs.rs]
