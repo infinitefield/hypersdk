@@ -2,6 +2,7 @@
 //!
 //! Everything related to HyperEVM and contracts.
 
+pub mod morpho;
 pub mod uniswap;
 
 // reimport

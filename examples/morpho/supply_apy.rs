@@ -1,4 +1,4 @@
-use alloy::{primitives::FixedBytes, sol};
+use alloy::primitives::FixedBytes;
 use chrono::Utc;
 use clap::Parser;
 use hypersdk::{
@@ -24,39 +24,6 @@ struct Cli {
     rpc_url: String,
 }
 
-sol! {
-    struct MarketParams {
-        address loanToken;
-        address collateralToken;
-        address oracle;
-        address irm;
-        uint256 lltv;
-    }
-
-    struct Market {
-        uint128 totalSupplyAssets;
-        uint128 totalSupplyShares;
-        uint128 totalBorrowAssets;
-        uint128 totalBorrowShares;
-        uint128 lastUpdate;
-        uint128 fee;
-    }
-
-    #[sol(rpc)]
-    contract Morpho {
-        function market(bytes32 market) returns (Market);
-        function idToMarketParams(bytes32 market) returns (MarketParams);
-    }
-
-    #[sol(rpc)]
-    contract AdaptativeCurveIrm {
-        type Id is bytes32;
-
-        function MORPHO() external view returns (address);
-        function borrowRateView(MarketParams memory marketParams, Market memory market) external returns (uint256);
-    }
-}
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
@@ -64,32 +31,15 @@ async fn main() -> anyhow::Result<()> {
     println!("Connecting to RPC endpoint: {}", args.rpc_url);
 
     let provider = DynProvider::new(hyperevm::mainnet_with_url(&args.rpc_url).await?);
+    let morpho = hyperevm::morpho::Client::new(provider.clone());
+    let apy = morpho.apy(args.contract_address, args.market_id).await?;
 
-    let irm = AdaptativeCurveIrm::new(args.contract_address, provider.clone());
-    let morpho_address = irm.MORPHO().call().await?;
-    println!("Morpho {morpho_address}");
-
-    let morpho = Morpho::new(morpho_address, provider.clone());
-
-    let market = morpho.market(args.market_id).call().await?;
     let last_update =
-        chrono::DateTime::<Utc>::from_timestamp_secs(market.lastUpdate as i64).unwrap();
+        chrono::DateTime::<Utc>::from_timestamp_secs(apy.market.lastUpdate as i64).unwrap();
     println!("market params last updated at {}", last_update);
 
-    let market_params = morpho.idToMarketParams(args.market_id).call().await?;
-
-    let utilization = market.totalBorrowAssets as f64 / market.totalSupplyAssets as f64;
-    let fee = market.fee as f64 / 1e18;
-
-    let rate = irm.borrowRateView(market_params, market).call().await?;
-    println!("borrowing rate is {rate}, utilization {utilization}");
-
-    let rate = rate.to::<u64>() as f64 / 1e18;
-
-    let borrow_apy = (rate * 31_536_000f64).exp() - 1.0;
-    let supply_apy = borrow_apy * utilization * (1.0 - fee);
-    println!("borrow APY is {}", borrow_apy * 100.0);
-    println!("supply APY is {}", supply_apy * 100.0);
+    println!("borrow APY is {}", apy.borrow * 100.0);
+    println!("supply APY is {}", apy.supply * 100.0);
 
     Ok(())
 }
