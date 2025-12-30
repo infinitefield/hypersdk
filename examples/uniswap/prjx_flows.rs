@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use alloy::{providers::Provider, rpc::types::Filter, sol_types::SolEvent};
 use clap::Parser;
 use hypersdk::hyperevm::{
-    self, Address, IERC20,
+    self, Address, ERC20,
     uniswap::{contracts::NFTPositionManager, prjx},
 };
 
@@ -41,8 +41,8 @@ async fn main() -> anyhow::Result<()> {
 
     for pos in &positions {
         let provider = prjx.provider();
-        let token0_client = IERC20::new(pos.token0, provider.clone());
-        let token1_client = IERC20::new(pos.token1, provider.clone());
+        let token0_client = ERC20::new(pos.token0, provider.clone());
+        let token1_client = ERC20::new(pos.token1, provider.clone());
 
         let (symbol0, decimals0, symbol1, decimals1) = provider
             .multicall()

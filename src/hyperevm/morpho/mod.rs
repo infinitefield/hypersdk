@@ -5,7 +5,7 @@ use alloy::{
 };
 
 use crate::hyperevm::{
-    DynProvider, IERC20,
+    DynProvider, ERC20,
     morpho::contracts::{AdaptativeCurveIrm, Morpho},
 };
 
@@ -182,7 +182,7 @@ where
     pub async fn apy(&self, address: Address) -> anyhow::Result<VaultApy> {
         let meta_morpho = contracts::MetaMorpho::new(address, self.provider.clone());
         // the vault is at the same time a token and holds balances
-        let vault_erc20 = IERC20::new(address, self.provider.clone());
+        let vault_erc20 = ERC20::new(address, self.provider.clone());
         let (fee, supply_queue_len, total_supply, morpho_addr) = self
             .provider
             .multicall()

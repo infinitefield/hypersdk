@@ -31,27 +31,23 @@ pub type DynProvider = alloy::providers::DynProvider<Ethereum>;
 
 impl<T> Provider for T where T: alloy::providers::Provider<Ethereum> + Send + Clone + 'static {}
 
-sol! {
+sol!(
     #[sol(rpc)]
-    interface IERC20 {
-        // --- Metadata Functions ---
-        function name() external view returns (string memory);
-        function symbol() external view returns (string memory);
-        function decimals() external view returns (uint8);
+    ERC20,
+    "abi/ERC20.json"
+);
 
-        // --- Core Functions (from IERC20) ---
-        function totalSupply() external view returns (uint256);
-        function balanceOf(address account) external view returns (uint256);
-        function allowance(address owner, address spender) external view returns (uint256);
-        function transfer(address to, uint256 amount) external returns (bool);
-        function approve(address spender, uint256 amount) external returns (bool);
-        function transferFrom(address from, address to, uint256 amount) external returns (bool);
+sol!(
+    #[sol(rpc)]
+    IERC4626,
+    "abi/IERC4626.json"
+);
 
-        // --- Events (from IERC20) ---
-        event Transfer(address indexed from, address indexed to, uint256 value);
-        event Approval(address indexed owner, address indexed spender, uint256 value);
-    }
-}
+sol!(
+    #[sol(rpc)]
+    IERC777,
+    "abi/IERC777.json"
+);
 
 /// Creates a Provider for Ethereum
 #[inline(always)]
@@ -114,7 +110,7 @@ mod tests {
     #[tokio::test]
     async fn test_query() {
         let provider = ProviderBuilder::new().connect_http(DEFAULT_RPC_URL.parse().unwrap());
-        let whype = IERC20::new(UBTC_ADDRESS, provider.clone());
+        let whype = ERC20::new(UBTC_ADDRESS, provider.clone());
         let balance = whype.totalSupply().call().await.unwrap();
         // let balance = utils::format_units(balance, 18).expect("ok");
         assert_eq!(balance, U256::from(21_000_000u128 * 100_000_000u128));

@@ -4,7 +4,7 @@ use alloy::{
 use clap::Parser;
 use hypersdk::{
     Address, U256,
-    hyperevm::{self, DynProvider, IERC20},
+    hyperevm::{self, DynProvider, ERC20},
 };
 use tokio::sync::mpsc::unbounded_channel;
 
@@ -92,8 +92,8 @@ async fn main() -> anyhow::Result<()> {
                 if topic0 == &Morpho::CreateMarket::SIGNATURE_HASH {
                     if let Ok(market) = Morpho::CreateMarket::decode_log_data(&log.inner) {
                         let collateral =
-                            IERC20::new(market.marketParams.collateralToken, provider.clone());
-                        let loan = IERC20::new(market.marketParams.loanToken, provider.clone());
+                            ERC20::new(market.marketParams.collateralToken, provider.clone());
+                        let loan = ERC20::new(market.marketParams.loanToken, provider.clone());
                         let (collateral, loan) = provider
                             .multicall()
                             .add(collateral.symbol())

@@ -39,8 +39,8 @@ async fn main() -> anyhow::Result<()> {
         let logs = provider.get_logs(&filter).await?;
         for log in logs {
             let data = uniswap::contracts::Factory::PoolCreated::decode_log(&log.inner)?;
-            let token0 = hyperevm::IERC20::new(data.token0, provider.clone());
-            let token1 = hyperevm::IERC20::new(data.token1, provider.clone());
+            let token0 = hyperevm::ERC20::new(data.token0, provider.clone());
+            let token1 = hyperevm::ERC20::new(data.token1, provider.clone());
 
             let (token0, token1) = provider
                 .multicall()

@@ -3,7 +3,7 @@ use chrono::Utc;
 use clap::Parser;
 use hypersdk::{
     Address,
-    hyperevm::{self, DynProvider, IERC20},
+    hyperevm::{self, DynProvider, ERC20},
 };
 
 #[derive(Parser, Debug)]
@@ -41,8 +41,8 @@ async fn main() -> anyhow::Result<()> {
     let market_params = &apy.params;
     let (collateral, loan) = provider
         .multicall()
-        .add(IERC20::new(market_params.collateralToken, provider.clone()).symbol())
-        .add(IERC20::new(market_params.loanToken, provider.clone()).symbol())
+        .add(ERC20::new(market_params.collateralToken, provider.clone()).symbol())
+        .add(ERC20::new(market_params.loanToken, provider.clone()).symbol())
         .aggregate()
         .await?;
 

@@ -16,7 +16,7 @@ use anyhow::Result;
 use rust_decimal::{Decimal, MathematicalOps, dec, prelude::ToPrimitive};
 
 use crate::hyperevm::{
-    Address, DynProvider, IERC20, Provider,
+    Address, DynProvider, ERC20, Provider,
     uniswap::contracts::{
         CollectParams,
         Factory::{self, FactoryInstance},
@@ -220,8 +220,8 @@ where
             let prehash = hasher.finish();
             let entry = pools.entry(prehash);
             if let Entry::Vacant(entry) = entry {
-                let token0_client = IERC20::new(pos.token0, self.provider.clone());
-                let token1_client = IERC20::new(pos.token1, self.provider.clone());
+                let token0_client = ERC20::new(pos.token0, self.provider.clone());
+                let token1_client = ERC20::new(pos.token1, self.provider.clone());
 
                 let (decimals0, decimals1, pool_address) = self
                     .provider
@@ -301,8 +301,8 @@ where
         fee: u32,
     ) -> Result<Address> {
         let factory = Factory::new(self.contracts.factory, self.provider.clone());
-        let token0_erc = IERC20::new(token0, self.provider.clone());
-        let token1_erc = IERC20::new(token1, self.provider.clone());
+        let token0_erc = ERC20::new(token0, self.provider.clone());
+        let token1_erc = ERC20::new(token1, self.provider.clone());
         let (_, _, address) = self
             .provider
             .multicall()
@@ -352,8 +352,8 @@ where
     ) -> Result<Decimal> {
         let factory = self.factory();
 
-        let token0_client = IERC20::new(token0, self.provider.clone());
-        let token1_client = IERC20::new(token1, self.provider.clone());
+        let token0_client = ERC20::new(token0, self.provider.clone());
+        let token1_client = ERC20::new(token1, self.provider.clone());
 
         // get the pool address and the decimals of each token
         let (decimals0, decimals1, pool_address) = self
@@ -387,8 +387,8 @@ where
             .aggregate()
             .await?;
 
-        let token0_client = IERC20::new(token0, self.provider.clone());
-        let token1_client = IERC20::new(token1, self.provider.clone());
+        let token0_client = ERC20::new(token0, self.provider.clone());
+        let token1_client = ERC20::new(token1, self.provider.clone());
 
         let (decimals0, decimals1) = self
             .provider
