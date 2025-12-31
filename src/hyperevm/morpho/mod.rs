@@ -49,15 +49,15 @@ impl VaultApy {
     pub fn apy(&self) -> f64 {
         self.components
             .iter()
-            .map(|compontent| {
+            .map(|component| {
                 // https://github.com/morpho-org/morpho-blue/blob/48b2a62d9d911a27f886fb7909ad57e29f7dacc9/src/libraries/SharesMathLib.sol#L20
                 let supplied_shares =
-                    (compontent.supplied_shares / U256::from(1e6)).to::<u64>() as f64;
+                    (component.supplied_shares / U256::from(1e6)).to::<u64>() as f64;
                 // to get the supplied assets determine the price per share
-                let supplied_assets = (compontent.pool.market.totalSupplyAssets as f64
-                    / compontent.pool.market.totalSupplyShares as f64)
+                let supplied_assets = (component.pool.market.totalSupplyAssets as f64
+                    / component.pool.market.totalSupplyShares as f64)
                     * supplied_shares;
-                supplied_assets * compontent.pool.supply / self.total_deposits
+                supplied_assets * component.pool.supply / self.total_deposits
             })
             .sum::<f64>()
             * (1.0 - self.fee)
