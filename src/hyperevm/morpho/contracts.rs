@@ -74,3 +74,19 @@ sol!(
 
 transmute_this!(IIrm::Market, Market);
 transmute_this!(IIrm::MarketParams, MarketParams);
+
+sol!(
+    #[derive(Debug)]
+    #[sol(rpc)]
+    MorphoEvents,
+    "abi/MorphoEventsLib.json"
+);
+
+transmute_this!(MorphoEvents::MarketParams, MarketParams);
+
+sol!(
+    #[derive(Debug)]
+    #[sol(rpc)]
+    MorphoIOracle,
+    "abi/MorphoIOracle.json"
+);

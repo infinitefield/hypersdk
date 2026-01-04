@@ -18,6 +18,9 @@ use crate::hyperevm::{
 
 pub mod contracts;
 
+/// Morpho market id.
+pub type MarketId = FixedBytes<32>;
+
 /// Pool's APY
 #[derive(Debug, Clone)]
 pub struct PoolApy {
@@ -110,11 +113,7 @@ where
     }
 
     /// Returns the pool's APY.
-    pub async fn apy(
-        &self,
-        address: Address,
-        market_id: FixedBytes<32>,
-    ) -> anyhow::Result<PoolApy> {
+    pub async fn apy(&self, address: Address, market_id: MarketId) -> anyhow::Result<PoolApy> {
         let morpho = IMorpho::new(address, self.provider.clone());
         let (params, market) = self
             .provider

@@ -1,12 +1,13 @@
 use std::{sync::Arc, time::Duration};
 
-use alloy::{
-    primitives::FixedBytes, providers::Provider, rpc::types::Filter, sol, sol_types::SolEvent,
-};
+use alloy::{primitives::FixedBytes, providers::Provider, rpc::types::Filter, sol_types::SolEvent};
 use clap::Parser;
 use hypersdk::{
     Address, U256,
-    hyperevm::{self, DynProvider, ERC20},
+    hyperevm::{
+        self, DynProvider, ERC20,
+        morpho::contracts::{IMorpho, MorphoEvents},
+    },
 };
 use indicatif::ProgressBar;
 use tokio::{
@@ -27,34 +28,6 @@ struct Cli {
     /// RPC url
     #[arg(short, long, default_value = "http://127.0.0.1:8545")]
     rpc_url: String,
-}
-
-sol! {
-    #[sol(rpc)]
-    contract Morpho {
-        type Id is bytes32;
-
-        struct Market {
-            uint128 totalSupplyAssets;
-            uint128 totalSupplyShares;
-            uint128 totalBorrowAssets;
-            uint128 totalBorrowShares;
-            uint128 lastUpdate;
-            uint128 fee;
-        }
-
-        struct MarketParams {
-            address loanToken;
-            address collateralToken;
-            address oracle;
-            address irm;
-            uint256 lltv;
-        }
-
-        event CreateMarket(Id indexed id, MarketParams marketParams);
-
-        function market(bytes32 market) returns (Market);
-    }
 }
 
 #[tokio::main]
@@ -87,7 +60,7 @@ async fn main() -> anyhow::Result<()> {
         let to_block = (from_block + 100_000).min(current_block);
         let filter = Filter::new()
             .address(args.contract_address)
-            .event_signature(Morpho::CreateMarket::SIGNATURE_HASH)
+            .event_signature(MorphoEvents::CreateMarket::SIGNATURE_HASH)
             .from_block(from_block)
             .to_block(to_block);
 
@@ -102,8 +75,8 @@ async fn main() -> anyhow::Result<()> {
                     continue;
                 };
 
-                if topic0 == &Morpho::CreateMarket::SIGNATURE_HASH {
-                    if let Ok(market) = Morpho::CreateMarket::decode_log_data(&log.inner) {
+                if topic0 == &MorphoEvents::CreateMarket::SIGNATURE_HASH {
+                    if let Ok(market) = MorphoEvents::CreateMarket::decode_log_data(&log.inner) {
                         let collateral =
                             ERC20::new(market.marketParams.collateralToken, provider.clone());
                         let loan = ERC20::new(market.marketParams.loanToken, provider.clone());
@@ -146,7 +119,7 @@ async fn main() -> anyhow::Result<()> {
     let bar = ProgressBar::new(market_params.len() as u64);
 
     let mut markets = vec![];
-    let morpho = Morpho::new(args.contract_address, provider);
+    let morpho = IMorpho::new(args.contract_address, provider);
     for params in &market_params {
         let data = morpho.market(params.id).call().await?;
         markets.push(data);

@@ -6,6 +6,8 @@ use clap::{Parser, Subcommand};
 use enum_dispatch::enum_dispatch;
 use hypersdk::Address;
 use hypersdk::hypercore;
+use hypersdk::hyperevm;
+use hypersdk::hyperevm::morpho;
 
 #[derive(Parser)]
 #[command(author, version)]
@@ -29,6 +31,8 @@ enum Commands {
     Spot(SpotCmd),
     /// Gather spot balances for a user.
     SpotBalances(SpotBalancesCmd),
+    /// Query an addresses' morpho balance
+    MorphoPosition(MorphoPositionCmd),
 }
 
 #[tokio::main]
@@ -103,6 +107,7 @@ impl Run for SpotCmd {
 
 #[derive(Args)]
 struct SpotBalancesCmd {
+    #[arg(short, long)]
     user: Address,
 }
 
@@ -120,6 +125,48 @@ impl Run for SpotBalancesCmd {
                 balance.coin, balance.hold, balance.total
             )?;
         }
+
+        writer.flush()?;
+
+        Ok(())
+    }
+}
+
+#[derive(Args)]
+struct MorphoPositionCmd {
+    /// Morpho's contract address.
+    #[arg(
+        short,
+        long,
+        default_value = "0x68e37dE8d93d3496ae143F2E900490f6280C57cD"
+    )]
+    contract: Address,
+    /// RPC endpoint
+    #[arg(short, long, default_value = "https://api.hyperliquid.xyz")]
+    rpc_url: String,
+    /// Morpho market
+    #[arg(short, long)]
+    market: morpho::MarketId,
+    /// Target user
+    #[arg(short, long)]
+    user: Address,
+}
+
+impl Run for MorphoPositionCmd {
+    async fn run(&self) -> anyhow::Result<()> {
+        let provider = hyperevm::mainnet_with_url(&self.rpc_url).await?;
+        let client = hyperevm::morpho::Client::new(provider);
+        let morpho = client.instance(self.contract);
+        let position = morpho.position(self.market, self.user).call().await?;
+
+        let mut writer = tabwriter::TabWriter::new(stdout());
+
+        writeln!(&mut writer, "borrow shares\tcollateral\tsupply shares")?;
+        writeln!(
+            &mut writer,
+            "{}\t{}\t{}",
+            position.borrowShares, position.collateral, position.supplyShares
+        )?;
 
         writer.flush()?;
 
