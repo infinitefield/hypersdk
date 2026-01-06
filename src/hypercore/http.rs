@@ -61,7 +61,7 @@ use alloy::{
     primitives::Address,
     signers::{Signer, SignerSync},
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use reqwest::header;
 use rust_decimal::Decimal;
@@ -70,11 +70,13 @@ use url::Url;
 
 use super::types::HyperliquidChain;
 use crate::hypercore::{
-    ARBITRUM_SIGNATURE_CHAIN_ID, Cloid, OidOrCloid, PerpMarket, SpotMarket, SpotToken,
+    ARBITRUM_SIGNATURE_CHAIN_ID, Chain, Cloid, OidOrCloid, PerpMarket, SpotMarket, SpotToken,
+    mainnet_url, testnet_url,
     types::{
         Action, ActionRequest, ApiResponse, BasicOrder, BatchCancel, BatchCancelCloid, BatchModify,
-        BatchOrder, CORE_MAINNET_EIP712_DOMAIN, Fill, OkResponse, OrderResponseStatus, OrderUpdate,
-        ScheduleCancel, SendAsset, SendToken, Signature, SpotSend, UsdSend, UserBalance, solidity,
+        BatchOrder, CORE_MAINNET_EIP712_DOMAIN, Fill, MultiSigAction, MultiSigPayload, OkResponse,
+        OrderResponseStatus, OrderUpdate, ScheduleCancel, SendAsset, SendToken, Signature,
+        SpotSend, UsdSend, UserBalance, get_typed_data, rmp_hash, solidity,
     },
 };
 
@@ -142,21 +144,38 @@ impl<T> std::error::Error for ActionError<T> where T: fmt::Display + fmt::Debug 
 pub struct Client {
     http_client: reqwest::Client,
     base_url: Url,
+    chain: Chain,
 }
 
 impl Client {
-    /// Creates a new HTTP client with a custom base URL.
+    /// Creates a new HTTP client for the specified chain.
+    ///
+    /// The base URL is automatically determined based on the chain:
+    /// - `Chain::Mainnet`: `https://api.hyperliquid.xyz`
+    /// - `Chain::Testnet`: `https://api.hyperliquid-testnet.xyz`
+    ///
+    /// All actions signed by this client will use chain-specific values:
+    /// - Agent source field: `"a"` for mainnet, `"b"` for testnet
+    /// - Multisig chain ID: `"0x66eee"` for mainnet, `"0x66eef"` for testnet
     ///
     /// # Example
     ///
     /// ```
-    /// use hypersdk::hypercore::HttpClient;
-    /// use url::Url;
+    /// use hypersdk::hypercore::{HttpClient, Chain};
     ///
-    /// let url: Url = "https://api.hyperliquid.xyz".parse().unwrap();
-    /// let client = HttpClient::new(url);
+    /// // Create a mainnet client
+    /// let mainnet_client = HttpClient::new(Chain::Mainnet);
+    ///
+    /// // Create a testnet client
+    /// let testnet_client = HttpClient::new(Chain::Testnet);
     /// ```
-    pub fn new(base_url: Url) -> Self {
+    pub fn new(chain: Chain) -> Self {
+        let base_url = if chain.is_mainnet() {
+            mainnet_url()
+        } else {
+            testnet_url()
+        };
+
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
             .tcp_nodelay(true)
@@ -166,7 +185,33 @@ impl Client {
         Self {
             http_client,
             base_url,
+            chain,
         }
+    }
+
+    /// Sets a custom base URL for this client.
+    ///
+    /// This is useful when connecting to a custom Hyperliquid node or proxy.
+    /// The chain configuration is preserved.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use hypersdk::hypercore::{HttpClient, Chain};
+    /// use url::Url;
+    ///
+    /// let custom_url: Url = "https://my-custom-node.example.com".parse().unwrap();
+    /// let client = HttpClient::new(Chain::Mainnet)
+    ///     .with_url(custom_url);
+    /// ```
+    pub fn with_url(self, base_url: Url) -> Self {
+        Self { base_url, ..self }
+    }
+
+    /// Returns the chain this client is configured for.
+    #[must_use]
+    pub const fn chain(&self) -> Chain {
+        self.chain
     }
 
     /// Creates a WebSocket connection using the same base URL as this HTTP client.
@@ -876,6 +921,28 @@ impl Client {
         }
     }
 
+    /// Execute a multisig action.
+    pub async fn multi_sig<'a, S: SignerSync + Signer + 'a>(
+        &self,
+        lead: &S,
+        multi_sig_user: Address,
+        signers: impl IntoIterator<Item = &'a S>,
+        action: Action,
+        nonce: u64,
+    ) -> Result<ApiResponse> {
+        let multi_sig_action = multisig_collect_signatures(
+            lead.address(),
+            multi_sig_user,
+            signers.into_iter(),
+            action,
+            nonce,
+            self.chain,
+        )?;
+
+        self.send_sign_rmp_multisig(lead, multi_sig_action, nonce)
+            .await
+    }
+
     /// Send a signed action hashing with typed data.
     fn send_sign_eip712<S: SignerSync>(
         &self,
@@ -922,6 +989,7 @@ impl Client {
             nonce,
             maybe_vault_address,
             maybe_expires_after,
+            self.chain,
         );
 
         let http_client = self.http_client.clone();
@@ -931,6 +999,36 @@ impl Client {
         async move {
             let req = res?;
             let text = serde_json::to_string(&req).expect("serde");
+            let res = http_client
+                .post(url)
+                .timeout(Duration::from_secs(5))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(text)
+                .send()
+                .await?
+                .json()
+                .await?;
+            Ok(res)
+        }
+    }
+
+    /// Send a signed action hashing with rmp.
+    fn send_sign_rmp_multisig<S: SignerSync>(
+        &self,
+        signer: &S,
+        action: MultiSigAction,
+        nonce: u64,
+    ) -> impl Future<Output = Result<ApiResponse>> + Send + 'static {
+        let res = sign_rmp_multisig(signer, self.chain, action, nonce, None, None);
+
+        let http_client = self.http_client.clone();
+        let mut url = self.base_url.clone();
+        url.set_path("/exchange");
+
+        async move {
+            let req = res?;
+            let text = serde_json::to_string(&req).context("serde_json::to_string")?;
+            println!(">> {text}");
             let res = http_client
                 .post(url)
                 .timeout(Duration::from_secs(5))
@@ -972,13 +1070,14 @@ fn sign_rmp<S: SignerSync>(
     nonce: u64,
     maybe_vault_address: Option<Address>,
     maybe_expires_after: Option<DateTime<Utc>>,
+    chain: Chain,
 ) -> Result<ActionRequest> {
     let expires_after = maybe_expires_after.map(|after| after.timestamp_millis() as u64);
     let connection_id = action.hash(nonce, maybe_vault_address, expires_after)?;
 
     let sig = signer.sign_typed_data_sync(
         &solidity::Agent {
-            source: "a".to_string(),
+            source: if chain.is_mainnet() { "a" } else { "b" }.to_string(),
             connectionId: connection_id,
         },
         &CORE_MAINNET_EIP712_DOMAIN,
@@ -990,6 +1089,71 @@ fn sign_rmp<S: SignerSync>(
         nonce,
         vault_address: maybe_vault_address,
         expires_after,
+    })
+}
+
+fn sign_rmp_multisig<S: SignerSync>(
+    signer: &S,
+    chain: Chain,
+    action: MultiSigAction,
+    nonce: u64,
+    maybe_vault_address: Option<Address>,
+    maybe_expires_after: Option<DateTime<Utc>>,
+) -> Result<ActionRequest> {
+    let expires_after = maybe_expires_after.map(|after| after.timestamp_millis() as u64);
+    let multsig_hash = rmp_hash(&action, nonce, maybe_vault_address, expires_after)?;
+
+    let envelope = solidity::MultiSigEnvelope {
+        hyperliquidChain: chain.to_string(),
+        multiSigActionHash: multsig_hash,
+        nonce,
+    };
+
+    let typed_data = get_typed_data::<solidity::MultiSigEnvelope>(&envelope);
+    let sig = signer.sign_dynamic_typed_data_sync(&typed_data)?;
+
+    Ok(ActionRequest {
+        signature: sig.into(),
+        action: Action::MultiSig(action),
+        nonce,
+        vault_address: maybe_vault_address,
+        expires_after,
+    })
+}
+
+// https://github.com/hyperliquid-dex/hyperliquid-python-sdk/blob/be7523d58297a93d0e938063460c14ae45e9034f/hyperliquid/utils/signing.py#L293
+fn multisig_collect_signatures<'a, S: SignerSync + Signer + 'a>(
+    lead: Address,
+    multi_sig_user: Address,
+    signers: impl Iterator<Item = &'a S>,
+    action: Action,
+    nonce: u64,
+    chain: Chain,
+) -> Result<MultiSigAction> {
+    // Collect signatures from all signers
+    let mut signatures = vec![];
+    for signer in signers {
+        let action_hash = rmp_hash(&(lead, multi_sig_user, &action), nonce, None, None)?;
+        let sig = signer
+            .sign_typed_data_sync(
+                &solidity::Agent {
+                    source: if chain.is_mainnet() { "a" } else { "b" }.to_string(),
+                    connectionId: action_hash,
+                },
+                &CORE_MAINNET_EIP712_DOMAIN,
+            )
+            .context("signature")?;
+        signatures.push(sig.into());
+    }
+
+    Ok(MultiSigAction {
+        signature_chain_id: chain.multisig_chain_id().to_owned(),
+        signatures,
+        payload: MultiSigPayload {
+            multi_sig_user,
+            outer_signer: lead,
+            action: Box::new(action),
+        },
     })
 }
 

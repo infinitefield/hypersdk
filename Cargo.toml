@@ -27,6 +27,10 @@ exclude = [
 ]
 
 [[example]]
+name = "multisig_order"
+path = "examples/hypercore/multisig_order.rs"
+
+[[example]]
 name = "buy_and_transfer"
 path = "examples/hypercore/buy_and_transfer.rs"
 
@@ -109,7 +113,7 @@ alloy = { version = "1.1.1", default-features = false, features = ["contract", "
 anyhow = "1.0.100"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 const-hex = "1"
-derive_more = { version = "2", features = ["display"] }
+derive_more = { version = "2", features = ["display", "is_variant"] }
 either = { version = "1", features = ["serde"] }
 futures = { version = "0.3", default-features = false, features = ["std"] }
 log = "0.4"

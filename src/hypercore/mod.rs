@@ -105,6 +105,7 @@ use std::{fmt, hash::Hash};
 use alloy::primitives::{B128, U256, address};
 /// Reimport signers.
 pub use alloy::signers::local::PrivateKeySigner;
+use anyhow::Context;
 use either::Either;
 use reqwest::IntoUrl;
 use rust_decimal::{Decimal, MathematicalOps, RoundingStrategy, prelude::ToPrimitive};
@@ -139,11 +140,61 @@ pub use http::Client as HttpClient;
 /// Use this for subscribing to trades, order books, and order updates.
 pub use ws::Connection as WebSocket;
 
+/// Chain identifier for Hyperliquid operations.
+///
+/// This determines which network-specific constants to use for signatures and operations.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    derive_more::Display,
+    derive_more::FromStr,
+    derive_more::IsVariant,
+)]
+pub enum Chain {
+    /// Mainnet chain
+    Mainnet,
+    /// Testnet chain
+    Testnet,
+}
+
+impl Chain {
+    /// Returns the multisig signature chain ID for this chain.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use hypersdk::hypercore::Chain;
+    ///
+    /// assert_eq!(Chain::Mainnet.multisig_chain_id(), "0x66eee");
+    /// assert_eq!(Chain::Testnet.multisig_chain_id(), "0x66eef");
+    /// ```
+    #[must_use]
+    pub const fn multisig_chain_id(&self) -> &'static str {
+        match self {
+            Self::Mainnet => MAINNET_MULTISIG_CHAIN_ID,
+            Self::Testnet => TESTNET_MULTISIG_CHAIN_ID,
+        }
+    }
+}
+
 /// Arbitrum mainnet chain ID used for EIP-712 signatures.
 ///
 /// This is required when signing transactions that involve cross-chain operations
 /// or transfers between HyperCore and HyperEVM.
 pub const ARBITRUM_SIGNATURE_CHAIN_ID: &str = "0xa4b1";
+
+/// Mainnet L1 multisig signature chain ID.
+///
+/// Use this when executing multisig transactions on mainnet.
+pub const MAINNET_MULTISIG_CHAIN_ID: &str = "0x66eee";
+
+/// Testnet L1 multisig signature chain ID.
+///
+/// Use this when executing multisig transactions on testnet.
+pub const TESTNET_MULTISIG_CHAIN_ID: &str = "0x66eef";
 
 /// USDC contract address on HyperEVM.
 ///
@@ -164,7 +215,23 @@ pub const USDC_CONTRACT_IN_EVM: Address = address!("0xb88339CB7199b77E23DB6E8903
 /// ```
 #[inline(always)]
 pub fn mainnet() -> HttpClient {
-    HttpClient::new(mainnet_url())
+    HttpClient::new(Chain::Mainnet)
+}
+
+/// Creates a testnet HTTP client for HyperCore.
+///
+/// This is a convenience function that creates a client pointing to the default testnet API.
+///
+/// # Example
+///
+/// ```
+/// use hypersdk::hypercore;
+///
+/// let client = hypercore::testnet();
+/// ```
+#[inline(always)]
+pub fn testnet() -> HttpClient {
+    HttpClient::new(Chain::Testnet)
 }
 
 /// Creates a mainnet WebSocket connection for HyperCore.
@@ -201,6 +268,42 @@ pub fn mainnet_url() -> Url {
 #[inline(always)]
 pub fn mainnet_websocket_url() -> Url {
     "wss://api.hyperliquid.xyz/ws".parse().unwrap()
+}
+
+/// Returns the default testnet HTTP API URL.
+///
+/// URL: `https://api.hyperliquid-testnet.xyz`
+#[inline(always)]
+pub fn testnet_url() -> Url {
+    "https://api.hyperliquid-testnet.xyz".parse().unwrap()
+}
+
+/// Returns the default testnet WebSocket URL.
+///
+/// URL: `wss://api.hyperliquid-testnet.xyz/ws`
+#[inline(always)]
+pub fn testnet_websocket_url() -> Url {
+    "wss://api.hyperliquid-testnet.xyz/ws".parse().unwrap()
+}
+
+/// Creates a testnet WebSocket connection for HyperCore.
+///
+/// This is a convenience function that creates a WebSocket connection to the testnet API.
+///
+/// # Example
+///
+/// ```
+/// use hypersdk::hypercore;
+/// use futures::StreamExt;
+///
+/// # async fn example() {
+/// let mut ws = hypercore::testnet_ws();
+/// // Subscribe to market data
+/// # }
+/// ```
+#[inline(always)]
+pub fn testnet_ws() -> WebSocket {
+    WebSocket::new(testnet_websocket_url())
 }
 
 /// Price tick table for determining valid price increments.
@@ -902,7 +1005,8 @@ pub async fn perp_markets(
             "type": "meta"
         }))
         .send()
-        .await?;
+        .await
+        .context("info")?;
     let data: PerpTokens = resp.json().await?;
     let collateral = &spot.tokens[data.collateral_token];
     let collateral = SpotToken::from(collateral.clone());

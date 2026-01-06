@@ -257,10 +257,7 @@ pub enum Incoming {
     /// Order status changes for a user
     OrderUpdates(Vec<OrderUpdate>),
     /// Fill events for a user
-    UserFills {
-        user: Address,
-        fills: Vec<Fill>,
-    },
+    UserFills { user: Address, fills: Vec<Fill> },
     /// Server heartbeat ping
     Ping,
     /// Server heartbeat pong
@@ -1039,7 +1036,7 @@ pub(super) struct ActionRequest {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "status", content = "response")]
 #[serde(rename_all = "camelCase")]
-pub(super) enum ApiResponse {
+pub enum ApiResponse {
     Ok(OkResponse),
     Err(String),
 }
@@ -1050,7 +1047,7 @@ pub(super) enum ApiResponse {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", content = "data")]
 #[serde(rename_all = "camelCase")]
-pub(super) enum OkResponse {
+pub enum OkResponse {
     Order { statuses: Vec<OrderResponseStatus> },
     // should be ok?
     Default,
@@ -1153,8 +1150,8 @@ impl OrderResponseStatus {
 /// Signature.
 ///
 /// Represents an EIP‑712 signature split into its components.
-#[derive(Debug, Serialize)]
-pub(super) struct Signature {
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct Signature {
     pub r: U256,
     pub s: U256,
     pub v: u64,
@@ -1521,13 +1518,41 @@ pub enum HyperliquidChain {
     Testnet,
 }
 
+/// Multi-signature action payload.
+///
+/// Contains the multisig user address, outer signer, and the inner action to execute.
+#[derive(Clone, Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct MultiSigPayload {
+    /// The multisig account address
+    pub multi_sig_user: Address,
+    /// The address executing the multisig action
+    pub outer_signer: Address,
+    /// The inner action to execute
+    pub action: Box<Action>,
+}
+
+/// Multi-signature action wrapper.
+///
+/// Wraps any action with multiple signatures for multisig execution.
+#[derive(Clone, Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct MultiSigAction {
+    /// Signature chain ID (0x66eee for L1 multisig)
+    pub signature_chain_id: String,
+    /// Signatures from authorized signers
+    pub signatures: Vec<Signature>,
+    /// The multisig payload
+    pub payload: MultiSigPayload,
+}
+
 /// An action that requires signing.
 ///
 /// Represents a request to the exchange that must be signed by the user.
 #[derive(Clone, Serialize, Debug)]
 #[serde(tag = "type")]
 #[serde(rename_all = "camelCase")]
-pub(super) enum Action {
+pub enum Action {
     /// Order insertion.
     Order(BatchOrder),
     /// Order modification.
@@ -1546,6 +1571,8 @@ pub(super) enum Action {
     SpotSend(SpotSend),
     /// EVM user modify.
     EvmUserModify { using_big_blocks: bool },
+    /// Multi-sig action.
+    MultiSig(MultiSigAction),
     /// Invalidate a request.
     Noop,
 }
@@ -1562,24 +1589,33 @@ impl Action {
         maybe_vault_address: Option<Address>,
         maybe_expires_after: Option<u64>,
     ) -> Result<B256, rmp_serde::encode::Error> {
-        let mut bytes = rmp_serde::to_vec_named(self)?;
-        bytes.extend(nonce.to_be_bytes());
-
-        if let Some(vault_address) = maybe_vault_address {
-            bytes.push(1);
-            bytes.extend(vault_address.as_slice());
-        } else {
-            bytes.push(0);
-        }
-
-        if let Some(expires_after) = maybe_expires_after {
-            bytes.push(0);
-            bytes.extend(expires_after.to_be_bytes());
-        }
-
-        let signature = keccak256(bytes);
-        Ok(B256::from(signature))
+        rmp_hash(self, nonce, maybe_vault_address, maybe_expires_after)
     }
+}
+
+pub(super) fn rmp_hash<T: Serialize>(
+    value: &T,
+    nonce: u64,
+    maybe_vault_address: Option<Address>,
+    maybe_expires_after: Option<u64>,
+) -> Result<B256, rmp_serde::encode::Error> {
+    let mut bytes = rmp_serde::to_vec_named(value)?;
+    bytes.extend(nonce.to_be_bytes());
+
+    if let Some(vault_address) = maybe_vault_address {
+        bytes.push(1);
+        bytes.extend(vault_address.as_slice());
+    } else {
+        bytes.push(0);
+    }
+
+    if let Some(expires_after) = maybe_expires_after {
+        bytes.push(0);
+        bytes.extend(expires_after.to_be_bytes());
+    }
+
+    let signature = keccak256(bytes);
+    Ok(B256::from(signature))
 }
 
 pub(super) mod solidity {
@@ -1616,13 +1652,20 @@ pub(super) mod solidity {
             string fromSubAccount;
             uint64 nonce;
         }
+
+        #[derive(serde::Serialize)]
+        struct MultiSigEnvelope {
+            string hyperliquidChain;
+            bytes32 multiSigActionHash;
+            uint64 nonce;
+        }
     }
 }
 
 /// Returns the EIP712 domain and EIP712 types of the `T` message.
 ///
 /// The returned `TypedData` can be used to sign the message with an Ethereum signer.
-fn get_typed_data<T: SolStruct>(msg: &impl Serialize) -> TypedData {
+pub(super) fn get_typed_data<T: SolStruct>(msg: &impl Serialize) -> TypedData {
     let mut resolver = Resolver::from_struct::<T>();
     resolver
         .ingest_string(T::eip712_encode_type())
