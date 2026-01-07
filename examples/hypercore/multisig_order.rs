@@ -8,7 +8,7 @@ use hypersdk::{
     Address,
     hypercore::{
         self as hypercore, Chain, Cloid, PrivateKeySigner,
-        types::{Action, BatchOrder, OrderGrouping, OrderRequest, OrderTypePlacement, TimeInForce},
+        types::{BatchOrder, OrderGrouping, OrderRequest, OrderTypePlacement, TimeInForce},
     },
 };
 use rust_decimal::dec;
@@ -95,21 +95,10 @@ async fn main() -> anyhow::Result<()> {
         .as_millis() as u64;
 
     // Execute multisig order
-    // - Lead signer (signers[0]): The signer who submits the transaction
-    // - Multisig address: The multisig wallet that will execute the action
-    // - All signers: Each signer's signature is collected and included
-    // - Action: The order to be placed
-    // - Nonce: Unique identifier for this transaction
-    //
-    // The signature chain ID is automatically determined by the client's chain (mainnet/testnet)
     let resp = client
-        .multi_sig(
-            &signers[0],
-            args.multisig_address,
-            &signers,
-            Action::Order(order),
-            nonce,
-        )
+        .multi_sig(&signers[0], args.multisig_address, nonce)
+        .signers(&signers)
+        .place(order, None, None)
         .await?;
 
     println!("Multisig order response: {resp:?}");

@@ -54,7 +54,11 @@
 //! # }
 //! ```
 
-use std::{collections::HashMap, fmt, time::Duration};
+use std::{
+    collections::{HashMap, VecDeque},
+    fmt,
+    time::Duration,
+};
 
 use alloy::{
     dyn_abi::TypedData,
@@ -63,6 +67,7 @@ use alloy::{
 };
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
+use futures::FutureExt;
 use reqwest::header;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -1001,25 +1006,31 @@ impl Client {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn multi_sig<'a, S: SignerSync + Signer + 'a>(
-        &self,
-        lead: &S,
+    pub fn multi_sig<'a, S: SignerSync + Signer>(
+        &'a self,
+        lead: &'a S,
         multi_sig_user: Address,
-        signers: impl IntoIterator<Item = &'a S>,
-        action: Action,
         nonce: u64,
-    ) -> Result<ApiResponse> {
-        let multi_sig_action = multisig_collect_signatures(
-            lead.address(),
-            multi_sig_user,
-            signers.into_iter(),
-            action,
-            nonce,
-            self.chain,
-        )?;
+    ) -> MultiSig<'a, S> {
+        // let multi_sig_action = multisig_collect_signatures(
+        //     lead.address(),
+        //     multi_sig_user,
+        //     signers.into_iter(),
+        //     action,
+        //     nonce,
+        //     self.chain,
+        // )?;
 
-        self.send_sign_rmp_multisig(lead, multi_sig_action, nonce)
-            .await
+        // self.send_sign_rmp_multisig(lead, multi_sig_action, nonce)
+        //     .await
+
+        MultiSig {
+            lead,
+            multi_sig_user,
+            signers: VecDeque::new(),
+            client: self,
+            nonce,
+        }
     }
 
     /// Send a signed action hashing with typed data.
@@ -1062,9 +1073,8 @@ impl Client {
         maybe_vault_address: Option<Address>,
         maybe_expires_after: Option<DateTime<Utc>>,
     ) -> impl Future<Output = Result<ApiResponse>> + Send + 'static {
-        let res = sign_rmp(
+        let res = action.sign(
             signer,
-            action,
             nonce,
             maybe_vault_address,
             maybe_expires_after,
@@ -1121,6 +1131,72 @@ impl Client {
     }
 
     // TODO: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#retrieve-a-users-subaccounts
+}
+
+pub struct MultiSig<'a, S: SignerSync + Signer> {
+    lead: &'a S,
+    multi_sig_user: Address,
+    signers: VecDeque<&'a S>,
+    nonce: u64,
+    client: &'a Client,
+}
+
+impl<'a, S> MultiSig<'a, S>
+where
+    S: SignerSync + Signer,
+{
+    pub fn signer(mut self, signer: &'a S) -> Self {
+        self.signers.push_back(signer);
+        self
+    }
+
+    pub fn signers(mut self, signers: impl IntoIterator<Item = &'a S>) -> Self {
+        self.signers.extend(signers);
+        self
+    }
+
+    pub fn place(
+        &self,
+        batch: BatchOrder,
+        vault_address: Option<Address>,
+        expires_after: Option<DateTime<Utc>>,
+    ) -> impl Future<Output = Result<Vec<OrderResponseStatus>, ActionError<Cloid>>> + Send + 'static
+    {
+        let cloids: Vec<_> = batch.orders.iter().map(|req| req.cloid).collect();
+
+        let res = multisig_collect_signatures(
+            self.lead.address(),
+            self.multi_sig_user,
+            self.signers.iter().copied(),
+            Action::Order(batch),
+            self.nonce,
+            self.client.chain,
+        )
+        .map(|action| {
+            self.client
+                .send_sign_rmp_multisig(&self.lead, action, self.nonce)
+        });
+
+        async move {
+            let future = res.map_err(|err| ActionError {
+                ids: cloids.clone(),
+                err: err.to_string(),
+            })?;
+            let resp = future.await.map_err(|err| ActionError {
+                ids: cloids.clone(),
+                err: err.to_string(),
+            })?;
+
+            match resp {
+                ApiResponse::Ok(OkResponse::Order { statuses }) => Ok(statuses),
+                ApiResponse::Err(err) => Err(ActionError { ids: cloids, err }),
+                _ => Err(ActionError {
+                    ids: cloids,
+                    err: format!("unexpected response type: {resp:?}"),
+                }),
+            }
+        }
+    }
 }
 
 #[derive(Serialize)]

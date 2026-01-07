@@ -15,10 +15,191 @@ use serde::Serialize;
 use crate::hypercore::{
     Chain, MAINNET_MULTISIG_CHAIN_ID,
     types::{
-        Action, ActionRequest, CORE_MAINNET_EIP712_DOMAIN, MultiSigAction, MultiSigPayload,
-        Signature, get_typed_data, rmp_hash, solidity,
+        Action, ActionRequest, BatchCancel, BatchCancelCloid, BatchModify, BatchOrder,
+        CORE_MAINNET_EIP712_DOMAIN, MultiSigAction, MultiSigPayload, ScheduleCancel, SendAsset,
+        Signature, SpotSend, UsdSend, get_typed_data, rmp_hash, solidity,
     },
 };
+
+/// Trait for signing actions.
+///
+/// This trait defines the interface for signing different types of actions
+/// on Hyperliquid. Each action type implements this trait with the appropriate
+/// signing method (RMP or EIP-712).
+pub(super) trait Signable {
+    fn sign<S: SignerSync>(
+        &self,
+        signer: &S,
+        nonce: u64,
+        maybe_vault_address: Option<Address>,
+        maybe_expires_after: Option<DateTime<Utc>>,
+        chain: Chain,
+    ) -> anyhow::Result<ActionRequest>;
+}
+
+// Implement Signable for actions that use sign_rmp (MessagePack hashing)
+impl Signable for BatchOrder {
+    fn sign<S: SignerSync>(
+        &self,
+        signer: &S,
+        nonce: u64,
+        maybe_vault_address: Option<Address>,
+        maybe_expires_after: Option<DateTime<Utc>>,
+        chain: Chain,
+    ) -> Result<ActionRequest> {
+        sign_rmp(
+            signer,
+            Action::Order(self.clone()),
+            nonce,
+            maybe_vault_address,
+            maybe_expires_after,
+            chain,
+        )
+    }
+}
+
+impl Signable for BatchModify {
+    fn sign<S: SignerSync>(
+        &self,
+        signer: &S,
+        nonce: u64,
+        maybe_vault_address: Option<Address>,
+        maybe_expires_after: Option<DateTime<Utc>>,
+        chain: Chain,
+    ) -> Result<ActionRequest> {
+        sign_rmp(
+            signer,
+            Action::BatchModify(self.clone()),
+            nonce,
+            maybe_vault_address,
+            maybe_expires_after,
+            chain,
+        )
+    }
+}
+
+impl Signable for BatchCancel {
+    fn sign<S: SignerSync>(
+        &self,
+        signer: &S,
+        nonce: u64,
+        maybe_vault_address: Option<Address>,
+        maybe_expires_after: Option<DateTime<Utc>>,
+        chain: Chain,
+    ) -> Result<ActionRequest> {
+        sign_rmp(
+            signer,
+            Action::Cancel(self.clone()),
+            nonce,
+            maybe_vault_address,
+            maybe_expires_after,
+            chain,
+        )
+    }
+}
+
+impl Signable for BatchCancelCloid {
+    fn sign<S: SignerSync>(
+        &self,
+        signer: &S,
+        nonce: u64,
+        maybe_vault_address: Option<Address>,
+        maybe_expires_after: Option<DateTime<Utc>>,
+        chain: Chain,
+    ) -> Result<ActionRequest> {
+        sign_rmp(
+            signer,
+            Action::CancelByCloid(self.clone()),
+            nonce,
+            maybe_vault_address,
+            maybe_expires_after,
+            chain,
+        )
+    }
+}
+
+impl Signable for ScheduleCancel {
+    fn sign<S: SignerSync>(
+        &self,
+        signer: &S,
+        nonce: u64,
+        maybe_vault_address: Option<Address>,
+        maybe_expires_after: Option<DateTime<Utc>>,
+        chain: Chain,
+    ) -> Result<ActionRequest> {
+        sign_rmp(
+            signer,
+            Action::ScheduleCancel(self.clone()),
+            nonce,
+            maybe_vault_address,
+            maybe_expires_after,
+            chain,
+        )
+    }
+}
+
+// Implement Signable for actions that use sign_eip712 (EIP-712 typed data)
+impl Signable for UsdSend {
+    fn sign<S: SignerSync>(
+        &self,
+        signer: &S,
+        nonce: u64,
+        _maybe_vault_address: Option<Address>,
+        _maybe_expires_after: Option<DateTime<Utc>>,
+        _chain: Chain,
+    ) -> Result<ActionRequest> {
+        let typed_data = self.typed_data(self);
+        sign_eip712(signer, Action::UsdSend(self.clone()), typed_data, nonce)
+    }
+}
+
+impl Signable for SendAsset {
+    fn sign<S: SignerSync>(
+        &self,
+        signer: &S,
+        nonce: u64,
+        _maybe_vault_address: Option<Address>,
+        _maybe_expires_after: Option<DateTime<Utc>>,
+        _chain: Chain,
+    ) -> Result<ActionRequest> {
+        let typed_data = self.typed_data(self);
+        sign_eip712(signer, Action::SendAsset(self.clone()), typed_data, nonce)
+    }
+}
+
+impl Signable for SpotSend {
+    fn sign<S: SignerSync>(
+        &self,
+        signer: &S,
+        nonce: u64,
+        _maybe_vault_address: Option<Address>,
+        _maybe_expires_after: Option<DateTime<Utc>>,
+        _chain: Chain,
+    ) -> Result<ActionRequest> {
+        let typed_data = self.typed_data(self);
+        sign_eip712(signer, Action::SpotSend(self.clone()), typed_data, nonce)
+    }
+}
+
+impl Signable for MultiSigAction {
+    fn sign<S: SignerSync>(
+        &self,
+        signer: &S,
+        nonce: u64,
+        maybe_vault_address: Option<Address>,
+        maybe_expires_after: Option<DateTime<Utc>>,
+        chain: Chain,
+    ) -> Result<ActionRequest> {
+        sign_rmp_multisig(
+            signer,
+            self.clone(),
+            nonce,
+            maybe_vault_address,
+            maybe_expires_after,
+            chain,
+        )
+    }
+}
 
 /// Send a signed action hashing with typed data.
 pub(super) fn sign_eip712<S: SignerSync>(

@@ -74,12 +74,17 @@
 
 use std::{collections::HashMap, fmt};
 
+use crate::hypercore::{
+    Chain,
+    signing::{Signable, sign_rmp},
+};
 use alloy::{
     dyn_abi::{Eip712Domain, Eip712Types, Resolver, TypedData},
     primitives::{Address, B128, B256, U256, keccak256},
-    signers::k256::ecdsa::RecoveryId,
+    signers::{SignerSync, k256::ecdsa::RecoveryId},
     sol_types::{SolStruct, eip712_domain},
 };
+use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize, Serializer};
 use serde_with::{DisplayFromStr, serde_as};
@@ -1046,7 +1051,7 @@ pub(super) struct ActionRequest {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "status", content = "response")]
 #[serde(rename_all = "camelCase")]
-pub enum ApiResponse {
+pub(super) enum ApiResponse {
     Ok(OkResponse),
     Err(String),
 }
@@ -1057,7 +1062,7 @@ pub enum ApiResponse {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", content = "data")]
 #[serde(rename_all = "camelCase")]
-pub enum OkResponse {
+pub(super) enum OkResponse {
     Order { statuses: Vec<OrderResponseStatus> },
     // should be ok?
     Default,
@@ -1567,7 +1572,7 @@ pub enum HyperliquidChain {
 /// Contains the multisig user address, outer signer, and the inner action to execute.
 #[derive(Clone, Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct MultiSigPayload {
+pub(super) struct MultiSigPayload {
     /// The multisig account address
     pub multi_sig_user: String,
     /// The address executing the multisig action
@@ -1581,7 +1586,7 @@ pub struct MultiSigPayload {
 /// Wraps any action with multiple signatures for multisig execution.
 #[derive(Clone, Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct MultiSigAction {
+pub(super) struct MultiSigAction {
     /// Signature chain ID (0x66eee for L1 multisig)
     pub signature_chain_id: &'static str,
     /// Signatures from authorized signers
@@ -1596,7 +1601,7 @@ pub struct MultiSigAction {
 #[derive(Clone, Serialize, Debug)]
 #[serde(tag = "type")]
 #[serde(rename_all = "camelCase")]
-pub enum Action {
+pub(super) enum Action {
     /// Order insertion.
     Order(BatchOrder),
     /// Order modification.
@@ -1634,6 +1639,91 @@ impl Action {
         maybe_expires_after: Option<u64>,
     ) -> Result<B256, rmp_serde::encode::Error> {
         rmp_hash(self, nonce, maybe_vault_address, maybe_expires_after)
+    }
+}
+
+impl Signable for Action {
+    fn sign<S: SignerSync>(
+        &self,
+        signer: &S,
+        nonce: u64,
+        maybe_vault_address: Option<Address>,
+        maybe_expires_after: Option<DateTime<Utc>>,
+        chain: Chain,
+    ) -> anyhow::Result<ActionRequest> {
+        match self {
+            Action::Order(inner) => inner.sign(
+                signer,
+                nonce,
+                maybe_vault_address,
+                maybe_expires_after,
+                chain,
+            ),
+            Action::BatchModify(inner) => inner.sign(
+                signer,
+                nonce,
+                maybe_vault_address,
+                maybe_expires_after,
+                chain,
+            ),
+            Action::Cancel(inner) => inner.sign(
+                signer,
+                nonce,
+                maybe_vault_address,
+                maybe_expires_after,
+                chain,
+            ),
+            Action::CancelByCloid(inner) => inner.sign(
+                signer,
+                nonce,
+                maybe_vault_address,
+                maybe_expires_after,
+                chain,
+            ),
+            Action::ScheduleCancel(inner) => inner.sign(
+                signer,
+                nonce,
+                maybe_vault_address,
+                maybe_expires_after,
+                chain,
+            ),
+            Action::UsdSend(inner) => inner.sign(
+                signer,
+                nonce,
+                maybe_vault_address,
+                maybe_expires_after,
+                chain,
+            ),
+            Action::SendAsset(inner) => inner.sign(
+                signer,
+                nonce,
+                maybe_vault_address,
+                maybe_expires_after,
+                chain,
+            ),
+            Action::SpotSend(inner) => inner.sign(
+                signer,
+                nonce,
+                maybe_vault_address,
+                maybe_expires_after,
+                chain,
+            ),
+            Action::MultiSig(inner) => inner.sign(
+                signer,
+                nonce,
+                maybe_vault_address,
+                maybe_expires_after,
+                chain,
+            ),
+            Action::EvmUserModify { .. } | Action::Noop => sign_rmp(
+                signer,
+                self.clone(),
+                nonce,
+                maybe_vault_address,
+                maybe_expires_after,
+                chain,
+            ),
+        }
     }
 }
 
