@@ -22,6 +22,8 @@ This SDK provides:
 - HyperEVM contract interactions (Morpho, Uniswap)
 - Type-safe EIP-712 signing for all operations
 - Accurate price tick rounding for orders
+- **HIP-3 support**: Query perpetual markets from multiple DEXes
+- **CLI tool** (`hypecli`): Command-line interface for Hyperliquid (will be extended in the future)
 
 ## Installation
 
@@ -177,74 +179,9 @@ async fn main() -> anyhow::Result<()> {
 
 ## Examples
 
-The repository includes numerous examples demonstrating various features:
-
-### HyperCore Examples
-
-```bash
-# List all perpetual and spot markets
-cargo run --example list_markets
-
-# List all spot tokens
-cargo run --example list_tokens
-
-# Place an order
-cargo run --example send_order
-
-# Transfer USDC
-cargo run --example send_usd
-
-# WebSocket market data
-cargo run --example websocket
-
-# Cross-chain transfers
-cargo run --example transfer_to_evm
-cargo run --example transfer_from_evm
-cargo run --example transfer_to_perps
-cargo run --example transfer_to_spot
-
-# Combined workflow
-cargo run --example buy_and_transfer
-```
-
-### Morpho Examples
-
-```bash
-# Get highest APY vaults
-cargo run --example morpho_highest_apy
-
-# Get supply/borrow APY for markets
-cargo run --example morpho_supply_apy
-cargo run --example morpho_borrow_apy
-
-# Vault performance tracking
-cargo run --example morpho_vault_apy
-cargo run --example morpho_vault_performance
-
-# Market creation events
-cargo run --example morpho_create_market_events
-```
-
-### Uniswap Examples
-
-```bash
-# Query pool creation events
-cargo run --example uniswap_pools_created
-
-# Track token flows for PRJX
-cargo run --example uniswap_prjx_flows
-```
+There are examples in the `examples/` folder. We tried to cover as many cases as possible.
 
 ## Features
-
-### Dual Signing System
-
-The SDK implements Hyperliquid's two distinct signing methods:
-
-- **RMP (MessagePack) Signing**: Used for trading operations (orders, cancellations, modifications). Actions are serialized to MessagePack, hashed with Keccak256, and signed via EIP-712.
-- **EIP-712 Typed Data Signing**: Used for asset transfers (USDC, spot tokens). More human-readable in wallet UIs.
-
-Both methods are handled transparently through the SDK's unified `Signable` trait interface.
 
 ### Price Tick Rounding
 
@@ -277,24 +214,7 @@ let aggressive_bid = btc.round_by_side(Side::Bid, dec!(93231.4), false);   // Ro
 
 Subscribe to real-time market data:
 
-```rust
-use hypersdk::hypercore::types::Subscription;
-
-// Available subscriptions:
-Subscription::AllMids               // All mid prices
-Subscription::Notification { user } // User notifications
-Subscription::WebData { user }      // User web data
-Subscription::Candle { coin, interval } // OHLCV candles
-Subscription::L2Book { coin }       // Order book
-Subscription::Trades { coin }       // Trade feed
-Subscription::OrderUpdates { user } // Order updates
-Subscription::UserEvents { user }   // User events
-Subscription::UserFills { user }    // Fill events
-Subscription::UserFundings { user } // Funding payments
-Subscription::UserNonFundingLedgerUpdates { user } // Balance updates
-```
-
-### Cross-Chain Transfers
+### Transfers support
 
 Transfer assets between three contexts: perpetual balance, spot balance, and HyperEVM.
 
@@ -314,7 +234,31 @@ client.transfer_to_perps(&signer, dec!(100.0), "USDC", nonce).await?;
 client.transfer_to_spot(&signer, dec!(100.0), "USDC", nonce).await?;
 ```
 
-### Multi-Signature Support
+### HIP-3: Multi-DEX Support
+
+The SDK supports [HIP-3](https://hyperliquid.gitbook.io/hyperliquid-docs/hyperliquid-improvement-proposals-hips/hip-3-builder-deployed-perpetuals), allowing you to query and trade HIP-3 perpetual markets:
+
+```rust
+use hypersdk::hypercore;
+
+let client = hypercore::mainnet();
+
+// Query all available DEXes
+let dexes = client.perp_dexs().await?;
+for dex in &dexes {
+    println!("DEX: {}", dex.name());
+}
+
+// Get markets from a specific DEX
+if let Some(dex) = dexes.first() {
+    let markets = client.perps_from(dex.clone()).await?;
+    for market in markets {
+        println!("{}: {}x leverage", market.name, market.max_leverage);
+    }
+}
+```
+
+### Multi-Sig Support
 
 The SDK supports multi-signature operations for orders and transfers:
 
