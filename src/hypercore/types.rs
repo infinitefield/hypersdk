@@ -34,9 +34,8 @@
 //!
 //! # EIP-712 Signing
 //!
-//! All actions that modify state require EIP-712 signatures. The signing domains are:
-//! - [`CORE_MAINNET_EIP712_DOMAIN`]: For L1 transactions
-//! - [`ARBITRUM_MAINNET_EIP712_DOMAIN`]: For bridging operations
+//! All actions that modify state require EIP-712 signatures. Signing domains are
+//! configured automatically by the SDK based on the chain and operation type.
 //!
 //! # Example: Placing an Order
 //!
@@ -122,15 +121,6 @@ pub struct Dex {
 
 impl Dex {
     /// Returns the DEX name.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use hypersdk::hypercore::types::Dex;
-    /// # let dex = Dex { name: "HyperliquidDEX".into(), index: 0 };
-    /// let name = dex.name();
-    /// assert_eq!(name, "HyperliquidDEX");
-    /// ```
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
@@ -1537,6 +1527,10 @@ impl fmt::Display for SendToken {
     }
 }
 
+// ========================================================
+// PRIVATE TYPES
+// ========================================================
+
 /// Send USDC from the perpetual balance.
 ///
 /// This action transfers USDC from your perpetual trading balance to another address.
@@ -1544,7 +1538,7 @@ impl fmt::Display for SendToken {
 ///
 /// # Fields
 ///
-/// - `signature_chain_id`: The chain ID for signature verification (use [`super::ARBITRUM_SIGNATURE_CHAIN_ID`])
+/// - `signature_chain_id`: The chain ID for signature verification (use [`super::ARBITRUM_MAINNET_CHAIN_ID`] or [`super::ARBITRUM_TESTNET_CHAIN_ID`])
 /// - `hyperliquid_chain`: Whether this is mainnet or testnet
 /// - `destination`: The recipient's address
 /// - `amount`: Amount of USDC to send (in USDC, not wei)
@@ -1568,10 +1562,10 @@ impl fmt::Display for SendToken {
 /// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#core-usdc-transfer>
 #[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct UsdSendAction {
+pub(super) struct UsdSendAction {
     /// Signature chain ID.
     ///
-    /// For arbitrum use [`super::ARBITRUM_SIGNATURE_CHAIN_ID`].
+    /// For arbitrum use [`super::ARBITRUM_MAINNET_CHAIN_ID`] or [`super::ARBITRUM_TESTNET_CHAIN_ID`].
     pub signature_chain_id: &'static str,
     /// The chain this action is being executed on.
     pub hyperliquid_chain: Chain,
@@ -1592,7 +1586,7 @@ pub struct UsdSendAction {
 ///
 /// # Fields
 ///
-/// - `signature_chain_id`: The chain ID for signature verification (use [`super::ARBITRUM_SIGNATURE_CHAIN_ID`])
+/// - `signature_chain_id`: The chain ID for signature verification (use [`super::ARBITRUM_MAINNET_CHAIN_ID`] or [`super::ARBITRUM_TESTNET_CHAIN_ID`])
 /// - `hyperliquid_chain`: Whether this is mainnet or testnet
 /// - `destination`: The recipient's address
 /// - `token`: The spot token to send (wrapped in `SendToken`)
@@ -1619,10 +1613,10 @@ pub struct UsdSendAction {
 #[serde_as]
 #[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct SpotSendAction {
+pub(super) struct SpotSendAction {
     /// Signature chain ID.
     ///
-    /// For arbitrum use [`super::ARBITRUM_SIGNATURE_CHAIN_ID`].
+    /// For arbitrum use [`super::ARBITRUM_MAINNET_CHAIN_ID`] or [`super::ARBITRUM_TESTNET_CHAIN_ID`].
     pub signature_chain_id: &'static str,
     /// The chain this action is being executed on.
     pub hyperliquid_chain: Chain,
@@ -1648,7 +1642,7 @@ pub struct SpotSendAction {
 pub(super) struct SendAssetAction {
     /// Signature chain ID.
     ///
-    /// For arbitrum use [`super::ARBITRUM_SIGNATURE_CHAIN_ID`].
+    /// For arbitrum use [`super::ARBITRUM_MAINNET_CHAIN_ID`] or [`super::ARBITRUM_TESTNET_CHAIN_ID`].
     pub signature_chain_id: &'static str,
     /// The chain this action is being executed on.
     pub hyperliquid_chain: Chain,
@@ -1670,10 +1664,6 @@ pub(super) struct SendAssetAction {
     /// Request nonce
     pub nonce: u64,
 }
-
-// ========================================================
-// PRIVATE TYPES
-// ========================================================
 
 /// Request for an action.
 ///

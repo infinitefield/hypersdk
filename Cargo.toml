@@ -10,7 +10,7 @@ repository = "https://github.com/infinitefield/hypersdk"
 homepage = "https://github.com/infinitefield/hypersdk"
 readme = "README.md"
 keywords = ["hyperliquid", "sdk", "trading", "dex", "perps"]
-documentation = "https://github.com/infinitefield/hypersdk"
+documentation = "https://docs.rs/hypersdk"
 rust-version = "1.85.0"
 
 include = [

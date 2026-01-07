@@ -41,7 +41,6 @@
 
 use std::{
     collections::{HashMap, VecDeque},
-    fmt,
     time::Duration,
 };
 
@@ -57,61 +56,14 @@ use url::Url;
 
 use super::signing::*;
 use crate::hypercore::{
-    Chain, Cloid, Dex, OidOrCloid, PerpMarket, SpotMarket, SpotToken, mainnet_url, testnet_url,
+    ActionError, Chain, Cloid, Dex, OidOrCloid, PerpMarket, SpotMarket, SpotToken, mainnet_url,
+    testnet_url,
     types::{
         Action, ApiResponse, BasicOrder, BatchCancel, BatchCancelCloid, BatchModify, BatchOrder,
         Fill, InfoRequest, OkResponse, OrderResponseStatus, OrderUpdate, ScheduleCancel, SendAsset,
         SendToken, SpotSend, UsdSend, UserBalance,
     },
 };
-
-/// Error type for batch operations that failed.
-///
-/// Contains the IDs of the orders/actions that failed and the error message.
-///
-/// # Type Parameter
-///
-/// - `T`: The ID type (e.g., `Cloid`, `u64`, `OidOrCloid`)
-#[derive(Debug, Clone)]
-pub struct ActionError<T> {
-    /// The IDs of orders/actions that encountered the error
-    ids: Vec<T>,
-    /// The error message from the exchange
-    err: String,
-}
-
-impl<T> ActionError<T> {
-    /// Creates a new ActionError.
-    pub fn new(ids: Vec<T>, err: String) -> Self {
-        Self { ids, err }
-    }
-
-    /// Returns the error message.
-    pub fn message(&self) -> &str {
-        &self.err
-    }
-
-    /// Returns the failed IDs.
-    pub fn ids(&self) -> &[T] {
-        &self.ids
-    }
-
-    /// Consumes the error and returns the IDs.
-    pub fn into_ids(self) -> Vec<T> {
-        self.ids
-    }
-}
-
-impl<T> fmt::Display for ActionError<T>
-where
-    T: fmt::Debug,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}, ids: {:?}", self.err, self.ids)
-    }
-}
-
-impl<T> std::error::Error for ActionError<T> where T: fmt::Display + fmt::Debug {}
 
 /// HTTP client for HyperCore API.
 ///

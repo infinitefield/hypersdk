@@ -258,29 +258,64 @@ async fn connection(
     tx: UnboundedSender<Incoming>,
     mut srx: UnboundedReceiver<SubChannelData>,
 ) {
-    let mut subs = HashSet::new();
+    let mut subs: HashSet<Subscription> = HashSet::new();
+    let mut reconnect_attempts = 0u32;
+    const MAX_RECONNECT_DELAY_MS: u64 = 5_000; // 5 seconds max
+    const INITIAL_RECONNECT_DELAY_MS: u64 = 500;
 
     loop {
-        let mut stream = match timeout(Duration::from_secs(5), Stream::connect(url.clone())).await {
+        let mut stream = match timeout(Duration::from_secs(10), Stream::connect(url.clone())).await
+        {
             Ok(ok) => match ok {
-                Ok(ok) => ok,
+                Ok(ok) => {
+                    log::info!("Connected to {url}");
+                    reconnect_attempts = 0; // Reset on successful connection
+                    ok
+                }
                 Err(err) => {
-                    log::error!("unable to connect to {url}: {err:?}");
-                    sleep(Duration::from_millis(1_500)).await;
+                    log::error!("Unable to connect to {url}: {err:?}");
+
+                    // Exponential backoff: 500ms, 1s, 2s, 4s, 5s (capped)
+                    let delay_ms = (INITIAL_RECONNECT_DELAY_MS * (1u64 << reconnect_attempts))
+                        .min(MAX_RECONNECT_DELAY_MS);
+                    reconnect_attempts = reconnect_attempts.saturating_add(1);
+
+                    log::info!(
+                        "Reconnecting in {}ms (attempt {})",
+                        delay_ms,
+                        reconnect_attempts
+                    );
+                    sleep(Duration::from_millis(delay_ms)).await;
                     continue;
                 }
             },
             Err(err) => {
-                log::error!("timed out connecting to {url}: {err:?}");
-                sleep(Duration::from_millis(1_500)).await;
+                log::error!("Connection timeout to {url}: {err:?}");
+
+                let delay_ms = (INITIAL_RECONNECT_DELAY_MS * (1u64 << reconnect_attempts))
+                    .min(MAX_RECONNECT_DELAY_MS);
+                reconnect_attempts = reconnect_attempts.saturating_add(1);
+
+                log::info!(
+                    "Reconnecting in {}ms (attempt {})",
+                    delay_ms,
+                    reconnect_attempts
+                );
+                sleep(Duration::from_millis(delay_ms)).await;
+
                 continue;
             }
         };
 
-        // Initial subscription
-        for sub in subs.iter().cloned() {
-            log::debug!("Initial subscription to {sub}");
-            let _ = stream.subscribe(sub).await;
+        // Re-subscribe to all active subscriptions after reconnection
+        if !subs.is_empty() {
+            log::info!("Re-subscribing to {} channels", subs.len());
+            for sub in subs.iter() {
+                log::debug!("Re-subscribing to {sub}");
+                if let Err(err) = stream.subscribe(sub.clone()).await {
+                    log::error!("Failed to re-subscribe to {sub}: {err:?}");
+                }
+            }
         }
 
         let mut ping = interval(Duration::from_secs(5));
@@ -316,6 +351,6 @@ async fn connection(
             }
         }
 
-        log::debug!("Disconnected from {url}");
+        log::warn!("Disconnected from {url}, attempting to reconnect...");
     }
 }

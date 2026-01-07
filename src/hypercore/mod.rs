@@ -80,6 +80,7 @@
 //! # }
 //! ```
 
+pub mod error;
 pub mod http;
 mod signing;
 pub mod types;
@@ -93,18 +94,19 @@ use alloy::primitives::{B128, U256, address};
 pub use alloy::signers::local::PrivateKeySigner;
 use anyhow::Context;
 use either::Either;
+/// Re-export error types.
+pub use error::{ActionError, Error};
 use reqwest::IntoUrl;
 use rust_decimal::{Decimal, MathematicalOps, RoundingStrategy, prelude::ToPrimitive};
 use serde::Deserialize;
+/// Re-import types.
+pub use types::*;
 use url::Url;
 
 use crate::{
     Address,
     hyperevm::{from_wei, to_wei},
 };
-
-/// Re-import types.
-pub use types::*;
 
 /// Client order ID (cloid).
 ///
@@ -1203,23 +1205,6 @@ struct PerpDex {
 /// Fetches all available perpetual futures markets from HyperCore.
 ///
 /// Returns a list of all perpetual contracts with leverage, collateral, and margin information.
-///
-/// # Example
-///
-/// ```no_run
-/// use hypersdk::hypercore;
-///
-/// # async fn example() -> anyhow::Result<()> {
-/// let url = hypercore::mainnet_url();
-/// let client = reqwest::Client::new();
-/// let markets = hypercore::perp_markets(url, client).await?;
-///
-/// for market in markets {
-///     println!("{}: {}x leverage", market.name, market.max_leverage);
-/// }
-/// # Ok(())
-/// # }
-/// ```
 pub async fn perp_markets(
     core_url: impl IntoUrl,
     client: reqwest::Client,
