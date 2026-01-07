@@ -136,7 +136,6 @@ pub type OidOrCloid = Either<u64, Cloid>;
 ///
 /// Use this client for placing orders, querying balances, and managing positions.
 pub use http::Client as HttpClient;
-
 /// Re-export of the WebSocket connection for real-time market data.
 ///
 /// Use this for subscribing to trades, order books, and order updates.
@@ -913,8 +912,9 @@ impl Eq for SpotMarket {}
 
 #[cfg(test)]
 mod tick_tests {
-    use super::*;
     use rust_decimal::dec;
+
+    use super::*;
 
     #[test]
     fn test_perp() {

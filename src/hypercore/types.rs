@@ -74,11 +74,6 @@
 
 use std::{collections::HashMap, fmt};
 
-use crate::hypercore::{
-    Chain,
-    signing::{Signable, sign_rmp},
-    utils,
-};
 use alloy::{
     dyn_abi::{Eip712Domain, TypedData},
     primitives::{Address, B128, B256, U256},
@@ -90,7 +85,11 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 
-use crate::hypercore::{Cloid, OidOrCloid, SpotToken};
+use crate::hypercore::{
+    Chain, Cloid, OidOrCloid, SpotToken,
+    signing::{Signable, sign_rmp},
+    utils,
+};
 
 /// Domain for Core mainnet EIP‑712 signing.
 /// This domain is used when creating signatures for transactions on the mainnet.

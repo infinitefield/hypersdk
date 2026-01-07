@@ -112,7 +112,6 @@ pub mod hyperevm;
 ///
 /// Used throughout the SDK for representing Ethereum-compatible addresses.
 pub use alloy::primitives::{Address, U160, U256, address};
-
 /// Re-exported decimal type from rust_decimal.
 ///
 /// Used for precise numerical operations, especially for prices and quantities.
