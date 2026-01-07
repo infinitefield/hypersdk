@@ -99,6 +99,7 @@
 pub mod http;
 mod signing;
 pub mod types;
+mod utils;
 pub mod ws;
 
 use std::{fmt, hash::Hash};

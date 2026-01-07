@@ -110,10 +110,6 @@ async fn main() -> anyhow::Result<()> {
     // Create the USDC transfer action
     // This specifies where to send, how much, and when
     let usd_send = UsdSend {
-        // Chain specification (Mainnet or Testnet)
-        hyperliquid_chain: args.chain,
-        // Arbitrum chain ID for signature domain
-        signature_chain_id: args.chain.arbitrum_id(),
         // Recipient address
         destination: args.destination,
         // Amount to transfer (USDC has 6 decimals on-chain, but we use regular decimal)

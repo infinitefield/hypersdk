@@ -77,21 +77,20 @@ use std::{collections::HashMap, fmt};
 use crate::hypercore::{
     Chain,
     signing::{Signable, sign_rmp},
+    utils,
 };
 use alloy::{
-    dyn_abi::{Eip712Domain, Eip712Types, Resolver, TypedData},
-    primitives::{Address, B128, B256, U256, keccak256},
+    dyn_abi::{Eip712Domain, TypedData},
+    primitives::{Address, B128, B256, U256},
     signers::{SignerSync, k256::ecdsa::RecoveryId},
-    sol_types::{SolStruct, eip712_domain},
+    sol_types::eip712_domain,
 };
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 
 use crate::hypercore::{Cloid, OidOrCloid, SpotToken};
-
-const HYPERLIQUID_EIP_PREFIX: &str = "HyperliquidTransaction:";
 
 /// Domain for Core mainnet EIP‑712 signing.
 /// This domain is used when creating signatures for transactions on the mainnet.
@@ -1027,45 +1026,172 @@ impl OrderStatus {
     }
 }
 
-/// Request for an action.
+/// Send USDC from the perpetual balance (inner data).
 ///
-/// Contains the action, a nonce, signature, optional vault address, and optional expiry.
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct ActionRequest {
-    /// Action.
-    pub action: Action,
-    /// Nonce of the message.
+/// This is the core data structure for a USDC transfer. To create a signable action,
+/// use the `into_action()` method to convert it to a `UsdSendAction`.
+///
+/// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#core-usdc-transfer>
+pub struct UsdSend {
+    pub destination: Address,
+    pub amount: Decimal,
+    pub time: u64,
+}
+
+impl UsdSend {
+    /// Converts this into a signable `UsdSendAction`.
+    ///
+    /// # Parameters
+    ///
+    /// - `signature_chain_id`: The chain ID for signature verification (e.g., [`super::ARBITRUM_MAINNET_CHAIN_ID`])
+    /// - `chain`: Whether this is mainnet or testnet
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let send = UsdSend {
+    ///     destination: "0x1234...".parse()?,
+    ///     amount: dec!(100),
+    ///     time: chrono::Utc::now().timestamp_millis() as u64,
+    /// };
+    ///
+    /// let action = send.into_action(ARBITRUM_MAINNET_CHAIN_ID, Chain::Mainnet);
+    /// ```
+    #[must_use]
+    pub(super) fn into_action(
+        self,
+        signature_chain_id: &'static str,
+        chain: Chain,
+    ) -> UsdSendAction {
+        UsdSendAction {
+            signature_chain_id,
+            hyperliquid_chain: chain,
+            destination: self.destination,
+            amount: self.amount,
+            time: self.time,
+        }
+    }
+}
+
+/// Send spot tokens (inner data).
+///
+/// This is the core data structure for a spot token transfer. To create a signable action,
+/// use the `into_action()` method to convert it to a `SpotSendAction`.
+///
+/// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#core-spot-transfer>
+pub struct SpotSend {
+    /// The destination address.
+    pub destination: Address,
+    /// Token
+    pub token: SendToken,
+    /// The amount.
+    pub amount: Decimal,
+    /// Current time, should match the nonce
+    pub time: u64,
+}
+
+impl SpotSend {
+    /// Converts this into a signable `SpotSendAction`.
+    ///
+    /// # Parameters
+    ///
+    /// - `signature_chain_id`: The chain ID for signature verification (e.g., [`super::ARBITRUM_MAINNET_CHAIN_ID`])
+    /// - `chain`: Whether this is mainnet or testnet
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let send = SpotSend {
+    ///     destination: "0x1234...".parse()?,
+    ///     token: SendToken(purr_token),
+    ///     amount: dec!(1000),
+    ///     time: chrono::Utc::now().timestamp_millis() as u64,
+    /// };
+    ///
+    /// let action = send.into_action(ARBITRUM_MAINNET_CHAIN_ID, Chain::Mainnet);
+    /// ```
+    #[must_use]
+    pub(super) fn into_action(
+        self,
+        signature_chain_id: &'static str,
+        chain: Chain,
+    ) -> SpotSendAction {
+        SpotSendAction {
+            signature_chain_id,
+            hyperliquid_chain: chain,
+            destination: self.destination,
+            token: self.token,
+            amount: self.amount,
+            time: self.time,
+        }
+    }
+}
+
+/// Send asset between accounts or DEXes (inner data).
+///
+/// This is the core data structure for sending assets across different contexts
+/// (e.g., between DEXes or subaccounts). To create a signable action,
+/// use the `into_action()` method to convert it to a `SendAssetAction`.
+///
+/// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#send-asset>
+pub struct SendAsset {
+    /// The destination address.
+    pub destination: Address,
+    /// Source DEX, can be empty
+    pub source_dex: String,
+    /// Destiation DEX, can be empty
+    pub destination_dex: String,
+    /// Token
+    pub token: SendToken,
+    /// The amount.
+    pub amount: Decimal,
+    /// From subaccount, can be empty
+    pub from_sub_account: String,
+    /// Request nonce
     pub nonce: u64,
-    /// Signature
-    pub signature: Signature,
-    /// Trading on behalf of
-    pub vault_address: Option<Address>,
-    /// Timestamp in milliseconds
-    pub expires_after: Option<u64>,
 }
 
-/// API response wrapper.
-///
-/// The `Ok` variant contains a successful response, while `Err` holds an error message.
-#[derive(Debug, Deserialize)]
-#[serde(tag = "status", content = "response")]
-#[serde(rename_all = "camelCase")]
-pub(super) enum ApiResponse {
-    Ok(OkResponse),
-    Err(String),
-}
-
-/// Successful API response data.
-///
-/// Currently supports order responses and a default placeholder.
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type", content = "data")]
-#[serde(rename_all = "camelCase")]
-pub(super) enum OkResponse {
-    Order { statuses: Vec<OrderResponseStatus> },
-    // should be ok?
-    Default,
+impl SendAsset {
+    /// Converts this into a signable `SendAssetAction`.
+    ///
+    /// # Parameters
+    ///
+    /// - `signature_chain_id`: The chain ID for signature verification (e.g., [`super::ARBITRUM_MAINNET_CHAIN_ID`])
+    /// - `chain`: Whether this is mainnet or testnet
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let send = SendAsset {
+    ///     destination: "0x1234...".parse()?,
+    ///     source_dex: String::new(),
+    ///     destination_dex: String::new(),
+    ///     token: SendToken(token),
+    ///     amount: dec!(500),
+    ///     from_sub_account: String::new(),
+    ///     nonce: 12345,
+    /// };
+    ///
+    /// let action = send.into_action(ARBITRUM_MAINNET_CHAIN_ID, Chain::Mainnet);
+    /// ```
+    #[must_use]
+    pub(super) fn into_action(
+        self,
+        signature_chain_id: &'static str,
+        chain: Chain,
+    ) -> SendAssetAction {
+        SendAssetAction {
+            signature_chain_id,
+            hyperliquid_chain: chain,
+            destination: self.destination,
+            source_dex: self.source_dex,
+            destination_dex: self.destination_dex,
+            token: self.token,
+            amount: self.amount,
+            from_sub_account: self.from_sub_account,
+            nonce: self.nonce,
+        }
+    }
 }
 
 /// Response to an order insertion.
@@ -1162,60 +1288,6 @@ impl OrderResponseStatus {
     }
 }
 
-/// Signature.
-///
-/// Represents an EIP‑712 signature split into its components.
-#[derive(Clone, Copy, Serialize)]
-#[serde_as]
-pub struct Signature {
-    #[serde(serialize_with = "serialize_as_hex")]
-    pub r: U256,
-    #[serde(serialize_with = "serialize_as_hex")]
-    pub s: U256,
-    pub v: u64,
-}
-
-fn serialize_as_hex<S>(value: &U256, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    serializer.serialize_str(&format!("{:#x}", value))
-}
-
-impl fmt::Display for Signature {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "r: 0x{:x}, s: 0x{:x}, v: {}", self.r, self.r, self.v)
-    }
-}
-
-impl fmt::Debug for Signature {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Signature")
-            .field("r", &format!("0x{:x}", self.r))
-            .field("s", &format!("0x{:x}", self.s))
-            .field("v", &self.v)
-            .finish()
-    }
-}
-
-impl From<Signature> for alloy::signers::Signature {
-    fn from(sig: Signature) -> Self {
-        let recid = RecoveryId::from_byte((sig.v - 27) as u8).expect("recid");
-        Self::new(sig.r, sig.s, recid.is_y_odd())
-    }
-}
-
-impl From<alloy::signers::Signature> for Signature {
-    fn from(signature: alloy::signers::Signature) -> Self {
-        let recid = signature.recid().to_byte() as u64 + 27;
-        Self {
-            r: signature.r(),
-            s: signature.s(),
-            v: recid,
-        }
-    }
-}
-
 /// Batch order.
 ///
 /// A collection of orders sent together, optionally grouped.
@@ -1257,15 +1329,8 @@ pub struct OrderRequest {
     #[serde(rename = "t")]
     pub order_type: OrderTypePlacement,
     #[serde(rename = "c")]
-    #[serde(serialize_with = "serialize_cloid_as_hex")]
+    #[serde(serialize_with = "super::utils::serialize_cloid_as_hex")]
     pub cloid: Cloid,
-}
-
-fn serialize_cloid_as_hex<S>(value: &Cloid, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    serializer.serialize_str(&format!("{:#x}", value))
 }
 
 /// Order type for the placement.
@@ -1457,12 +1522,38 @@ impl fmt::Display for SendToken {
     }
 }
 
-/// Send USDC from the perp balance.
+/// Send USDC from the perpetual balance.
+///
+/// This action transfers USDC from your perpetual trading balance to another address.
+/// The transfer happens on the Hyperliquid L1 and requires EIP-712 signature.
+///
+/// # Fields
+///
+/// - `signature_chain_id`: The chain ID for signature verification (use [`super::ARBITRUM_SIGNATURE_CHAIN_ID`])
+/// - `hyperliquid_chain`: Whether this is mainnet or testnet
+/// - `destination`: The recipient's address
+/// - `amount`: Amount of USDC to send (in USDC, not wei)
+/// - `time`: Timestamp in milliseconds (should match the nonce)
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use hypersdk::hypercore::types::UsdSendAction;
+/// use rust_decimal::dec;
+///
+/// let send = UsdSendAction {
+///     signature_chain_id: ARBITRUM_MAINNET_CHAIN_ID,
+///     hyperliquid_chain: Chain::Mainnet,
+///     destination: "0x1234...".parse()?,
+///     amount: dec!(100), // 100 USDC
+///     time: chrono::Utc::now().timestamp_millis() as u64,
+/// };
+/// ```
 ///
 /// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#core-usdc-transfer>
 #[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct UsdSend {
+pub struct UsdSendAction {
     /// Signature chain ID.
     ///
     /// For arbitrum use [`super::ARBITRUM_SIGNATURE_CHAIN_ID`].
@@ -1470,7 +1561,7 @@ pub struct UsdSend {
     /// The chain this action is being executed on.
     pub hyperliquid_chain: Chain,
     /// The destination address.
-    #[serde(serialize_with = "serialize_address_as_hex")]
+    #[serde(serialize_with = "super::utils::serialize_address_as_hex")]
     pub destination: Address,
     /// The amount.
     #[serde(with = "rust_decimal::serde::str")]
@@ -1479,13 +1570,41 @@ pub struct UsdSend {
     pub time: u64,
 }
 
-/// Send spot tokens.
+/// Send spot tokens to another address.
+///
+/// This action transfers spot tokens (like PURR, HYPE, etc.) from your spot balance
+/// to another address. The transfer happens on the Hyperliquid L1 and requires EIP-712 signature.
+///
+/// # Fields
+///
+/// - `signature_chain_id`: The chain ID for signature verification (use [`super::ARBITRUM_SIGNATURE_CHAIN_ID`])
+/// - `hyperliquid_chain`: Whether this is mainnet or testnet
+/// - `destination`: The recipient's address
+/// - `token`: The spot token to send (wrapped in `SendToken`)
+/// - `amount`: Amount to send (in token's native units)
+/// - `time`: Timestamp in milliseconds (should match the nonce)
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use hypersdk::hypercore::types::{SpotSendAction, SendToken};
+/// use rust_decimal::dec;
+///
+/// let send = SpotSendAction {
+///     signature_chain_id: ARBITRUM_MAINNET_CHAIN_ID,
+///     hyperliquid_chain: Chain::Mainnet,
+///     destination: "0x1234...".parse()?,
+///     token: SendToken(purr_token),
+///     amount: dec!(1000),
+///     time: chrono::Utc::now().timestamp_millis() as u64,
+/// };
+/// ```
 ///
 /// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#core-spot-transfer>
 #[serde_as]
 #[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct SpotSend {
+pub struct SpotSendAction {
     /// Signature chain ID.
     ///
     /// For arbitrum use [`super::ARBITRUM_SIGNATURE_CHAIN_ID`].
@@ -1493,7 +1612,7 @@ pub struct SpotSend {
     /// The chain this action is being executed on.
     pub hyperliquid_chain: Chain,
     /// The destination address.
-    #[serde(serialize_with = "serialize_address_as_hex")]
+    #[serde(serialize_with = "super::utils::serialize_address_as_hex")]
     pub destination: Address,
     /// Token
     #[serde_as(as = "DisplayFromStr")]
@@ -1511,7 +1630,7 @@ pub struct SpotSend {
 #[serde_as]
 #[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct SendAsset {
+pub(super) struct SendAssetAction {
     /// Signature chain ID.
     ///
     /// For arbitrum use [`super::ARBITRUM_SIGNATURE_CHAIN_ID`].
@@ -1519,7 +1638,7 @@ pub struct SendAsset {
     /// The chain this action is being executed on.
     pub hyperliquid_chain: Chain,
     /// The destination address.
-    #[serde(serialize_with = "serialize_address_as_hex")]
+    #[serde(serialize_with = "super::utils::serialize_address_as_hex")]
     pub destination: Address,
     /// Source DEX, can be empty
     pub source_dex: String,
@@ -1537,11 +1656,96 @@ pub struct SendAsset {
     pub nonce: u64,
 }
 
-fn serialize_address_as_hex<S>(value: &Address, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    serializer.serialize_str(&format!("{:#x}", value))
+// ========================================================
+// PRIVATE TYPES
+// ========================================================
+
+/// Request for an action.
+///
+/// Contains the action, a nonce, signature, optional vault address, and optional expiry.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ActionRequest {
+    /// Action.
+    pub action: Action,
+    /// Nonce of the message.
+    pub nonce: u64,
+    /// Signature
+    pub signature: Signature,
+    /// Trading on behalf of
+    pub vault_address: Option<Address>,
+    /// Timestamp in milliseconds
+    pub expires_after: Option<u64>,
+}
+
+/// API response wrapper.
+///
+/// The `Ok` variant contains a successful response, while `Err` holds an error message.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "status", content = "response")]
+#[serde(rename_all = "camelCase")]
+pub(super) enum ApiResponse {
+    Ok(OkResponse),
+    Err(String),
+}
+
+/// Successful API response data.
+///
+/// Currently supports order responses and a default placeholder.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type", content = "data")]
+#[serde(rename_all = "camelCase")]
+pub(super) enum OkResponse {
+    Order { statuses: Vec<OrderResponseStatus> },
+    // should be ok?
+    Default,
+}
+
+/// Signature.
+///
+/// Represents an EIP‑712 signature split into its components.
+#[derive(Clone, Copy, Serialize)]
+#[serde_as]
+pub(super) struct Signature {
+    #[serde(serialize_with = "super::utils::serialize_as_hex")]
+    pub r: U256,
+    #[serde(serialize_with = "super::utils::serialize_as_hex")]
+    pub s: U256,
+    pub v: u64,
+}
+
+impl fmt::Display for Signature {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "r: 0x{:x}, s: 0x{:x}, v: {}", self.r, self.r, self.v)
+    }
+}
+
+impl fmt::Debug for Signature {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Signature")
+            .field("r", &format!("0x{:x}", self.r))
+            .field("s", &format!("0x{:x}", self.s))
+            .field("v", &self.v)
+            .finish()
+    }
+}
+
+impl From<Signature> for alloy::signers::Signature {
+    fn from(sig: Signature) -> Self {
+        let recid = RecoveryId::from_byte((sig.v - 27) as u8).expect("recid");
+        Self::new(sig.r, sig.s, recid.is_y_odd())
+    }
+}
+
+impl From<alloy::signers::Signature> for Signature {
+    fn from(signature: alloy::signers::Signature) -> Self {
+        let recid = signature.recid().to_byte() as u64 + 27;
+        Self {
+            r: signature.r(),
+            s: signature.s(),
+            v: recid,
+        }
+    }
 }
 
 /// Multi-signature action payload.
@@ -1590,11 +1794,11 @@ pub(super) enum Action {
     /// Schedule cancellation of all orders.
     ScheduleCancel(ScheduleCancel),
     /// Core USDC transfer.
-    UsdSend(UsdSend),
+    UsdSend(UsdSendAction),
     /// Send asset.
-    SendAsset(SendAsset),
+    SendAsset(SendAssetAction),
     /// Spot send.
-    SpotSend(SpotSend),
+    SpotSend(SpotSendAction),
     /// EVM user modify.
     EvmUserModify { using_big_blocks: bool },
     /// Multi-sig action.
@@ -1615,7 +1819,7 @@ impl Action {
         maybe_vault_address: Option<Address>,
         maybe_expires_after: Option<u64>,
     ) -> Result<B256, rmp_serde::encode::Error> {
-        rmp_hash(self, nonce, maybe_vault_address, maybe_expires_after)
+        utils::rmp_hash(self, nonce, maybe_vault_address, maybe_expires_after)
     }
 }
 
@@ -1623,34 +1827,22 @@ impl Action {
     /// Returns the typed data for multisig signing, if applicable.
     ///
     /// Only EIP-712 typed data actions (UsdSend, SpotSend, SendAsset) support multisig typed data.
-    /// RMP-based actions return None and use RMP hash signing instead.
-    pub(super) fn typed_data_multisig(
-        &self,
-        multi_sig_user: Address,
-        lead: Address,
-    ) -> Option<TypedData> {
+    /// All other actions (orders, cancels, modifications) return None and use RMP hash signing.
+    pub fn typed_data_multisig(&self, multi_sig_user: Address, lead: Address) -> Option<TypedData> {
+        let multi_sig = Some((multi_sig_user, lead));
+
         match self {
-            Action::UsdSend(inner) => Some(get_typed_data::<solidity::multisig::UsdSend>(
-                inner,
-                Some((multi_sig_user, lead)),
+            Action::UsdSend(inner) => Some(utils::get_typed_data::<solidity::multisig::UsdSend>(
+                inner, multi_sig,
             )),
-            Action::SpotSend(inner) => Some(get_typed_data::<solidity::multisig::SpotSend>(
-                inner,
-                Some((multi_sig_user, lead)),
+            Action::SpotSend(inner) => Some(utils::get_typed_data::<solidity::multisig::SpotSend>(
+                inner, multi_sig,
             )),
-            Action::SendAsset(inner) => Some(get_typed_data::<solidity::multisig::SendAsset>(
-                inner,
-                Some((multi_sig_user, lead)),
-            )),
-            // RMP-based actions return None
-            Action::Order(_)
-            | Action::BatchModify(_)
-            | Action::Cancel(_)
-            | Action::CancelByCloid(_)
-            | Action::ScheduleCancel(_)
-            | Action::EvmUserModify { .. }
-            | Action::MultiSig(_)
-            | Action::Noop => None,
+            Action::SendAsset(inner) => Some(
+                utils::get_typed_data::<solidity::multisig::SendAsset>(inner, multi_sig),
+            ),
+            // All other actions use RMP signing
+            _ => None,
         }
     }
 }
@@ -1744,32 +1936,10 @@ impl Signable for Action {
     }
 }
 
-pub(super) fn rmp_hash<T: Serialize>(
-    value: &T,
-    nonce: u64,
-    maybe_vault_address: Option<Address>,
-    maybe_expires_after: Option<u64>,
-) -> Result<B256, rmp_serde::encode::Error> {
-    let mut bytes = rmp_serde::to_vec_named(value)?;
-    // println!("{}", bytes.escape_ascii().to_string());
-    bytes.extend(nonce.to_be_bytes());
-
-    if let Some(vault_address) = maybe_vault_address {
-        bytes.push(1);
-        bytes.extend(vault_address.as_slice());
-    } else {
-        bytes.push(0);
-    }
-
-    if let Some(expires_after) = maybe_expires_after {
-        bytes.push(0);
-        bytes.extend(expires_after.to_be_bytes());
-    }
-
-    let signature = keccak256(bytes);
-    Ok(B256::from(signature))
-}
-
+/// Solidity struct definitions for EIP-712 signing.
+///
+/// These structs define the EIP-712 types used for signing various actions
+/// on the Hyperliquid exchange. Each struct corresponds to a specific action type.
 pub(super) mod solidity {
     use alloy::sol;
 
@@ -1812,6 +1982,10 @@ pub(super) mod solidity {
         }
     }
 
+    /// Multisig-specific EIP-712 struct definitions.
+    ///
+    /// These structs include additional fields for multisig operations,
+    /// including the multisig user address and outer signer address.
     pub mod multisig {
         use alloy::sol;
 
@@ -1848,41 +2022,6 @@ pub(super) mod solidity {
                 uint64 nonce;
             }
         }
-    }
-}
-
-/// Returns the EIP712 domain and EIP712 types of the `T` message.
-///
-/// The returned `TypedData` can be used to sign the message with an Ethereum signer.
-pub(super) fn get_typed_data<T: SolStruct>(
-    msg: &impl Serialize,
-    multi_sig: Option<(Address, Address)>,
-) -> TypedData {
-    let mut resolver = Resolver::from_struct::<T>();
-    resolver
-        .ingest_string(T::eip712_encode_type())
-        .expect("agent");
-
-    let mut types = Eip712Types::from(&resolver);
-    let agent_type = types.remove(T::NAME).unwrap();
-
-    let mut msg = serde_json::to_value(msg).unwrap();
-    if let Some((multi_sig_address, lead)) = multi_sig {
-        let obj = msg.as_object_mut().unwrap();
-        obj.insert(
-            "payloadMultiSigUser".into(),
-            multi_sig_address.to_string().to_lowercase().into(),
-        );
-        obj.insert("outerSigner".into(), lead.to_string().to_lowercase().into());
-    }
-
-    types.insert(format!("{HYPERLIQUID_EIP_PREFIX}{}", T::NAME), agent_type);
-
-    TypedData {
-        domain: ARBITRUM_MAINNET_EIP712_DOMAIN,
-        resolver: Resolver::from(types),
-        primary_type: format!("{HYPERLIQUID_EIP_PREFIX}{}", T::NAME),
-        message: msg,
     }
 }
 

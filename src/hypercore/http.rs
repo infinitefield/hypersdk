@@ -72,8 +72,7 @@ use url::Url;
 
 use super::signing::*;
 use crate::hypercore::{
-    ARBITRUM_MAINNET_CHAIN_ID, Chain, Cloid, OidOrCloid, PerpMarket, SpotMarket, SpotToken,
-    mainnet_url, testnet_url,
+    Chain, Cloid, OidOrCloid, PerpMarket, SpotMarket, SpotToken, mainnet_url, testnet_url,
     types::{
         Action, ApiResponse, BasicOrder, BatchCancel, BatchCancelCloid, BatchModify, BatchOrder,
         Fill, OkResponse, OrderResponseStatus, OrderUpdate, ScheduleCancel, SendAsset, SendToken,
@@ -704,8 +703,6 @@ impl Client {
         self.spot_send(
             &signer,
             SpotSend {
-                hyperliquid_chain: Chain::Mainnet,
-                signature_chain_id: ARBITRUM_MAINNET_CHAIN_ID,
                 destination,
                 token: SendToken(token),
                 amount,
@@ -736,8 +733,6 @@ impl Client {
         self.send_asset(
             signer,
             SendAsset {
-                hyperliquid_chain: Chain::Mainnet,
-                signature_chain_id: ARBITRUM_MAINNET_CHAIN_ID,
                 destination: signer.address(),
                 source_dex: "".into(),
                 destination_dex: "spot".into(),
@@ -771,8 +766,6 @@ impl Client {
         self.send_asset(
             signer,
             SendAsset {
-                hyperliquid_chain: Chain::Mainnet,
-                signature_chain_id: ARBITRUM_MAINNET_CHAIN_ID,
                 destination: signer.address(),
                 source_dex: "spot".into(),
                 destination_dex: "".into(),
@@ -797,7 +790,15 @@ impl Client {
         send: UsdSend,
         nonce: u64,
     ) -> Result<()> {
-        let resp = self.sign_and_send(signer, send, nonce, None, None).await?;
+        let resp = self
+            .sign_and_send(
+                signer,
+                send.into_action(self.chain.arbitrum_id(), self.chain),
+                nonce,
+                None,
+                None,
+            )
+            .await?;
         match resp {
             ApiResponse::Ok(OkResponse::Default) => Ok(()),
             ApiResponse::Err(err) => {
@@ -818,7 +819,14 @@ impl Client {
         send: SendAsset,
         nonce: u64,
     ) -> impl Future<Output = Result<()>> + Send + 'static {
-        let future = self.sign_and_send(signer, send, nonce, None, None);
+        let future = self.sign_and_send(
+            signer,
+            send.into_action(self.chain.arbitrum_id(), self.chain),
+            nonce,
+            None,
+            None,
+        );
+
         async move {
             let resp = future.await?;
             match resp {
@@ -842,7 +850,14 @@ impl Client {
         send: SpotSend,
         nonce: u64,
     ) -> impl Future<Output = Result<()>> + Send + 'static {
-        let future = self.sign_and_send(signer, send, nonce, None, None);
+        let future = self.sign_and_send(
+            signer,
+            send.into_action(self.chain.arbitrum_id(), self.chain),
+            nonce,
+            None,
+            None,
+        );
+
         async move {
             let resp = future.await?;
             match resp {
@@ -1310,7 +1325,8 @@ where
             self.lead.address(),
             self.multi_sig_user,
             self.signers.iter().copied(),
-            Action::UsdSend(send),
+            send.into_action(self.client.chain().arbitrum_id(), self.client.chain())
+                .into(),
             nonce,
             self.client.chain,
         )
@@ -1396,7 +1412,8 @@ where
             self.lead.address(),
             self.multi_sig_user,
             self.signers.iter().copied(),
-            Action::SendAsset(send),
+            send.into_action(self.client.chain().arbitrum_id(), self.client.chain())
+                .into(),
             nonce,
             self.client.chain,
         )

@@ -6,7 +6,7 @@ use std::{
 use clap::Parser;
 use hypersdk::{
     Address,
-    hypercore::{self as hypercore, ARBITRUM_TESTNET_CHAIN_ID, Chain, types::UsdSend},
+    hypercore::{self as hypercore, types::UsdSend},
 };
 use rust_decimal::Decimal;
 
@@ -43,8 +43,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .send_usdc(
             &signer,
             UsdSend {
-                hyperliquid_chain: Chain::Testnet,
-                signature_chain_id: ARBITRUM_TESTNET_CHAIN_ID,
                 destination: args.to,
                 amount: args.amount,
                 time: nonce,

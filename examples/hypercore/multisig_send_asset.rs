@@ -61,10 +61,6 @@ async fn main() -> anyhow::Result<()> {
 
     // Create the asset transfer action
     let send_asset = SendAsset {
-        // Chain specification (Mainnet or Testnet)
-        hyperliquid_chain: Chain::Testnet,
-        // Arbitrum chain ID for signature domain
-        signature_chain_id: Chain::Testnet.arbitrum_id(),
         // Recipient address
         destination: "0x071749F7D58dFD985bDEA9cC14C429c530936432"
             .parse()

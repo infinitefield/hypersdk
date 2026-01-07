@@ -16,9 +16,10 @@ use crate::hypercore::{
     ARBITRUM_TESTNET_CHAIN_ID, Chain,
     types::{
         Action, ActionRequest, BatchCancel, BatchCancelCloid, BatchModify, BatchOrder,
-        CORE_MAINNET_EIP712_DOMAIN, MultiSigAction, MultiSigPayload, ScheduleCancel, SendAsset,
-        Signature, SpotSend, UsdSend, get_typed_data, rmp_hash, solidity,
+        CORE_MAINNET_EIP712_DOMAIN, MultiSigAction, MultiSigPayload, ScheduleCancel,
+        SendAssetAction, Signature, SpotSendAction, UsdSendAction, solidity,
     },
+    utils::{get_typed_data, rmp_hash},
 };
 
 /// Trait for signing actions that modify state on Hyperliquid.
@@ -263,7 +264,7 @@ impl Signable for ScheduleCancel {
 
 // EIP-712 typed data actions (transfers and asset movements)
 // These use direct EIP-712 typed data signing for better wallet UX
-impl Signable for UsdSend {
+impl Signable for UsdSendAction {
     fn sign<S: SignerSync>(
         self,
         signer: &S,
@@ -277,7 +278,7 @@ impl Signable for UsdSend {
     }
 }
 
-impl Signable for SendAsset {
+impl Signable for SendAssetAction {
     fn sign<S: SignerSync>(
         self,
         signer: &S,
@@ -291,7 +292,7 @@ impl Signable for SendAsset {
     }
 }
 
-impl Signable for SpotSend {
+impl Signable for SpotSendAction {
     fn sign<S: SignerSync>(
         self,
         signer: &S,
@@ -596,7 +597,7 @@ mod tests {
     fn test_sign_usd_transfer_action() {
         let signer = get_signer();
 
-        let usd_send = types::UsdSend {
+        let usd_send = types::UsdSendAction {
             signature_chain_id: ARBITRUM_MAINNET_CHAIN_ID,
             hyperliquid_chain: Chain::Mainnet,
             destination: "0x0D1d9635D0640821d15e323ac8AdADfA9c111414"
