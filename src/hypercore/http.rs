@@ -514,7 +514,7 @@ impl Client {
             ApiResponse::Err(err) => {
                 anyhow::bail!("schedule_cancel: {err}")
             }
-            _ => panic!("unexpected response: {resp:?}"),
+            _ => anyhow::bail!("schedule_cancel: unexpected response type: {resp:?}"),
         }
     }
 
@@ -592,7 +592,10 @@ impl Client {
             match resp {
                 ApiResponse::Ok(OkResponse::Order { statuses }) => Ok(statuses),
                 ApiResponse::Err(err) => Err(ActionError { ids: cloids, err }),
-                _ => panic!("unexpected response: {resp:?}"),
+                _ => Err(ActionError {
+                    ids: cloids,
+                    err: format!("unexpected response type: {resp:?}"),
+                }),
             }
         }
     }
@@ -626,7 +629,10 @@ impl Client {
             match resp {
                 ApiResponse::Ok(OkResponse::Order { statuses }) => Ok(statuses),
                 ApiResponse::Err(err) => Err(ActionError { ids: oids, err }),
-                _ => panic!("unexpected response: {resp:?}"),
+                _ => Err(ActionError {
+                    ids: oids,
+                    err: format!("unexpected response type: {resp:?}"),
+                }),
             }
         }
     }
@@ -660,7 +666,10 @@ impl Client {
             match resp {
                 ApiResponse::Ok(OkResponse::Order { statuses }) => Ok(statuses),
                 ApiResponse::Err(err) => Err(ActionError { ids: cloids, err }),
-                _ => panic!("unexpected response: {resp:?}"),
+                _ => Err(ActionError {
+                    ids: cloids,
+                    err: format!("unexpected response type: {resp:?}"),
+                }),
             }
         }
     }
@@ -694,7 +703,10 @@ impl Client {
             match resp {
                 ApiResponse::Ok(OkResponse::Order { statuses }) => Ok(statuses),
                 ApiResponse::Err(err) => Err(ActionError { ids: cloids, err }),
-                _ => panic!("unexpected response: {resp:?}"),
+                _ => Err(ActionError {
+                    ids: cloids,
+                    err: format!("unexpected response type: {resp:?}"),
+                }),
             }
         }
     }
@@ -816,7 +828,7 @@ impl Client {
             ApiResponse::Err(err) => {
                 anyhow::bail!("send_usdc: {err}")
             }
-            _ => panic!("unexpected response: {resp:?}"),
+            _ => anyhow::bail!("send_usdc: unexpected response type: {resp:?}"),
         }
     }
 
@@ -840,7 +852,7 @@ impl Client {
                 ApiResponse::Err(err) => {
                     anyhow::bail!("send_asset: {err}")
                 }
-                _ => panic!("unexpected response: {resp:?}"),
+                _ => anyhow::bail!("send_asset: unexpected response type: {resp:?}"),
             }
         }
     }
@@ -865,7 +877,7 @@ impl Client {
             ApiResponse::Err(err) => {
                 anyhow::bail!("spot send: {err}")
             }
-            _ => panic!("unexpected response: {resp:?}"),
+            _ => anyhow::bail!("spot_send: unexpected response type: {resp:?}"),
         }
     }
 
@@ -895,7 +907,7 @@ impl Client {
             ApiResponse::Err(err) => {
                 anyhow::bail!("evm_user_modify: {err}")
             }
-            _ => panic!("unexpected response: {resp:?}"),
+            _ => anyhow::bail!("evm_user_modify: unexpected response type: {resp:?}"),
         }
     }
 
@@ -916,7 +928,7 @@ impl Client {
             ApiResponse::Err(err) => {
                 anyhow::bail!("noop: {err}")
             }
-            _ => panic!("unexpected response: {resp:?}"),
+            _ => anyhow::bail!("noop: unexpected response type: {resp:?}"),
         }
     }
 

@@ -209,17 +209,13 @@ pub(super) fn multisig_collect_signatures<'a, S: SignerSync + Signer + 'a>(
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
 
-    use alloy::{primitives::Address, signers::local::PrivateKeySigner};
-    use rust_decimal::dec;
+    use alloy::signers::local::PrivateKeySigner;
 
     use super::*;
     use crate::hypercore::{
-        ARBITRUM_SIGNATURE_CHAIN_ID, Cloid,
-        types::{
-            self, BatchOrder, HyperliquidChain, OrderRequest, OrderTypePlacement, TimeInForce,
-        },
+        ARBITRUM_SIGNATURE_CHAIN_ID,
+        types::{self, HyperliquidChain},
     };
 
     fn get_signer() -> PrivateKeySigner {
