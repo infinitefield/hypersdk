@@ -2647,6 +2647,8 @@ dependencies = [
 [[package]]
 name = "hypersdk"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6bec55b5245170c5405592496516d12f05b34764711e307655c33bd6d6768c90"
 dependencies = [
  "alloy",
  "anyhow",
