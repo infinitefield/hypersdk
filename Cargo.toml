@@ -28,6 +28,10 @@ exclude = [
 ]
 
 [[example]]
+name = "websocket-candles"
+path = "examples/hypercore/websocket-candles.rs"
+
+[[example]]
 name = "list-hip3"
 path = "examples/hypercore/list-hip3.rs"
 

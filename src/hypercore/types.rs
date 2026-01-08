@@ -176,6 +176,7 @@ pub enum Outgoing {
 /// - **Bbo**: Best bid and offer updates for a market
 /// - **Trades**: Real-time trade feed for a market
 /// - **L2Book**: Order book snapshots and updates (Level 2 depth)
+/// - **Candle**: Real-time candlestick (OHLCV) updates for a market
 /// - **AllMids**: Mid prices for all markets (optionally filtered by DEX)
 ///
 /// # User-Specific Subscriptions
@@ -187,6 +188,7 @@ pub enum Outgoing {
 ///
 /// - Subscribe to BTC best bid/offer with `Subscription::Bbo { coin: "BTC".to_string() }`
 /// - Subscribe to ETH trades with `Subscription::Trades { coin: "ETH".to_string() }`
+/// - Subscribe to 15m BTC candles with `Subscription::Candle { coin: "BTC".to_string(), interval: "15m".to_string() }`
 /// - Subscribe to order updates for your address with `Subscription::OrderUpdates { user: your_address }`
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize, derive_more::Display)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -200,6 +202,9 @@ pub enum Subscription {
     /// Order book snapshots and updates
     #[display("l2Book({coin})")]
     L2Book { coin: String },
+    /// Real-time candlestick updates
+    #[display("candle({coin}@{interval})")]
+    Candle { coin: String, interval: String },
     /// Mid prices for all markets
     #[display("allMids({dex:?})")]
     AllMids {
@@ -224,6 +229,7 @@ pub enum Subscription {
 /// - **SubscriptionResponse**: Confirmation of subscription/unsubscription
 /// - **Bbo**: Best bid and offer update
 /// - **L2Book**: Order book snapshot or delta
+/// - **Candle**: Candlestick (OHLCV) update
 /// - **AllMids**: Mid prices for all markets
 /// - **Trades**: Trade events for a market
 /// - **OrderUpdates**: Order status changes for a user
@@ -242,6 +248,10 @@ pub enum Subscription {
 ///         for trade in trades {
 ///             println!("Trade: {} @ {}", trade.sz, trade.px);
 ///         }
+///     }
+///     Incoming::Candle(candle) => {
+///         println!("Candle: O:{} H:{} L:{} C:{}",
+///             candle.open, candle.high, candle.low, candle.close);
 ///     }
 ///     Incoming::OrderUpdates(updates) => {
 ///         for update in updates {
@@ -265,6 +275,8 @@ pub enum Incoming {
     Bbo(Bbo),
     /// Order book snapshot or delta
     L2Book(L2Book),
+    /// Candlestick update
+    Candle(Candle),
     /// Mid prices for all markets
     AllMids {
         dex: Option<String>,
@@ -481,6 +493,148 @@ impl Trade {
     pub fn is_sell(&self) -> bool {
         matches!(self.side, Side::Ask)
     }
+}
+
+/// Candle interval for historical data.
+///
+/// Specifies the time period covered by each candle.
+///
+/// # Available Intervals
+///
+/// - Minutes: `OneMinute`, `ThreeMinutes`, `FiveMinutes`, `FifteenMinutes`, `ThirtyMinutes`
+/// - Hours: `OneHour`, `TwoHours`, `FourHours`, `EightHours`, `TwelveHours`
+/// - Days and above: `OneDay`, `ThreeDays`, `OneWeek`, `OneMonth`
+///
+/// # Example
+///
+/// ```rust
+/// use hypersdk::hypercore::types::CandleInterval;
+///
+/// let interval = CandleInterval::FifteenMinutes;
+/// assert_eq!(interval.to_string(), "15m");
+///
+/// let parsed: CandleInterval = "15m".parse().unwrap();
+/// assert_eq!(parsed, CandleInterval::FifteenMinutes);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, derive_more::Display)]
+pub enum CandleInterval {
+    #[serde(rename = "1m")]
+    #[display("1m")]
+    OneMinute,
+    #[serde(rename = "3m")]
+    #[display("3m")]
+    ThreeMinutes,
+    #[serde(rename = "5m")]
+    #[display("5m")]
+    FiveMinutes,
+    #[serde(rename = "15m")]
+    #[display("15m")]
+    FifteenMinutes,
+    #[serde(rename = "30m")]
+    #[display("30m")]
+    ThirtyMinutes,
+    #[serde(rename = "1h")]
+    #[display("1h")]
+    OneHour,
+    #[serde(rename = "2h")]
+    #[display("2h")]
+    TwoHours,
+    #[serde(rename = "4h")]
+    #[display("4h")]
+    FourHours,
+    #[serde(rename = "8h")]
+    #[display("8h")]
+    EightHours,
+    #[serde(rename = "12h")]
+    #[display("12h")]
+    TwelveHours,
+    #[serde(rename = "1d")]
+    #[display("1d")]
+    OneDay,
+    #[serde(rename = "3d")]
+    #[display("3d")]
+    ThreeDays,
+    #[serde(rename = "1w")]
+    #[display("1w")]
+    OneWeek,
+    #[serde(rename = "1M")]
+    #[display("1M")]
+    OneMonth,
+}
+
+impl std::str::FromStr for CandleInterval {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "1m" => Ok(Self::OneMinute),
+            "3m" => Ok(Self::ThreeMinutes),
+            "5m" => Ok(Self::FiveMinutes),
+            "15m" => Ok(Self::FifteenMinutes),
+            "30m" => Ok(Self::ThirtyMinutes),
+            "1h" => Ok(Self::OneHour),
+            "2h" => Ok(Self::TwoHours),
+            "4h" => Ok(Self::FourHours),
+            "8h" => Ok(Self::EightHours),
+            "12h" => Ok(Self::TwelveHours),
+            "1d" => Ok(Self::OneDay),
+            "3d" => Ok(Self::ThreeDays),
+            "1w" => Ok(Self::OneWeek),
+            "1M" => Ok(Self::OneMonth),
+            _ => anyhow::bail!("Invalid candle interval: {}", s),
+        }
+    }
+}
+
+/// WebSocket candle (OHLCV bar).
+///
+/// Represents a single candlestick with open, high, low, close prices and volume.
+///
+/// # Fields
+///
+/// - `open_time`: Candle open time in milliseconds
+/// - `close_time`: Candle close time in milliseconds
+/// - `coin`: Market symbol (e.g., "BTC", "ETH")
+/// - `interval`: Candle interval (e.g., "15m", "1h", "1d")
+/// - `open`: Open price (first trade in the period)
+/// - `high`: High price (highest trade in the period)
+/// - `low`: Low price (lowest trade in the period)
+/// - `close`: Close price (last trade in the period)
+/// - `volume`: Volume (total traded amount in the period)
+/// - `num_trades`: Number of trades in this candle
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Candle {
+    /// Candle open time (milliseconds)
+    #[serde(rename = "t")]
+    pub open_time: u64,
+    /// Candle close time (milliseconds)
+    #[serde(rename = "T")]
+    pub close_time: u64,
+    /// Market symbol
+    #[serde(rename = "s")]
+    pub coin: String,
+    /// Interval
+    #[serde(rename = "i")]
+    pub interval: String,
+    /// Open price
+    #[serde(rename = "o")]
+    pub open: Decimal,
+    /// High price
+    #[serde(rename = "h")]
+    pub high: Decimal,
+    /// Low price
+    #[serde(rename = "l")]
+    pub low: Decimal,
+    /// Close price
+    #[serde(rename = "c")]
+    pub close: Decimal,
+    /// Volume
+    #[serde(rename = "v")]
+    pub volume: Decimal,
+    /// Number of trades
+    #[serde(rename = "n")]
+    pub num_trades: u64,
 }
 
 /// WebSocket L2Book.
@@ -1737,6 +1891,31 @@ pub(super) enum InfoRequest {
         user: Address,
     },
     AllMids,
+    CandleSnapshot {
+        req: CandleSnapshotRequest,
+    },
+}
+
+/// Candle snapshot request parameters.
+///
+/// Used to query historical candlestick data from the API.
+///
+/// # Notes
+///
+/// - Only the most recent 5000 candles are available
+/// - Times are in milliseconds
+/// - For HIP-3 assets, prefix the coin with dex name (e.g., "xyz:XYZ100")
+#[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CandleSnapshotRequest {
+    /// Market symbol (e.g., "BTC", "ETH")
+    pub coin: String,
+    /// Candle interval (e.g., "1m", "15m", "1h", "1d")
+    pub interval: CandleInterval,
+    /// Start time in milliseconds
+    pub start_time: u64,
+    /// End time in milliseconds
+    pub end_time: u64,
 }
 
 /// Signature.
@@ -2197,6 +2376,124 @@ mod tests {
             .unwrap()
         );
         assert_eq!(sig.v, 27);
+    }
+
+    #[test]
+    fn test_candle_interval_display() {
+        assert_eq!(CandleInterval::OneMinute.to_string(), "1m");
+        assert_eq!(CandleInterval::FifteenMinutes.to_string(), "15m");
+        assert_eq!(CandleInterval::OneHour.to_string(), "1h");
+        assert_eq!(CandleInterval::OneDay.to_string(), "1d");
+        assert_eq!(CandleInterval::OneWeek.to_string(), "1w");
+        assert_eq!(CandleInterval::OneMonth.to_string(), "1M");
+    }
+
+    #[test]
+    fn test_candle_interval_from_str() {
+        assert_eq!(
+            "1m".parse::<CandleInterval>().unwrap(),
+            CandleInterval::OneMinute
+        );
+        assert_eq!(
+            "15m".parse::<CandleInterval>().unwrap(),
+            CandleInterval::FifteenMinutes
+        );
+        assert_eq!(
+            "1h".parse::<CandleInterval>().unwrap(),
+            CandleInterval::OneHour
+        );
+        assert_eq!(
+            "4h".parse::<CandleInterval>().unwrap(),
+            CandleInterval::FourHours
+        );
+        assert_eq!(
+            "1d".parse::<CandleInterval>().unwrap(),
+            CandleInterval::OneDay
+        );
+        assert_eq!(
+            "1w".parse::<CandleInterval>().unwrap(),
+            CandleInterval::OneWeek
+        );
+        assert_eq!(
+            "1M".parse::<CandleInterval>().unwrap(),
+            CandleInterval::OneMonth
+        );
+    }
+
+    #[test]
+    fn test_candle_interval_from_str_invalid() {
+        let result = "invalid".parse::<CandleInterval>();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_candle_deserialization() {
+        let json = r#"{
+            "t": 1681923600000,
+            "T": 1681924499999,
+            "s": "BTC",
+            "i": "15m",
+            "o": "29295.0",
+            "h": "29309.0",
+            "l": "29250.0",
+            "c": "29258.0",
+            "v": "0.98639",
+            "n": 189
+        }"#;
+
+        let candle: Candle = serde_json::from_str(json).unwrap();
+        assert_eq!(candle.open_time, 1681923600000);
+        assert_eq!(candle.close_time, 1681924499999);
+        assert_eq!(candle.coin, "BTC");
+        assert_eq!(candle.interval, "15m");
+        assert_eq!(candle.open.to_string(), "29295.0");
+        assert_eq!(candle.high.to_string(), "29309.0");
+        assert_eq!(candle.low.to_string(), "29250.0");
+        assert_eq!(candle.close.to_string(), "29258.0");
+        assert_eq!(candle.volume.to_string(), "0.98639");
+        assert_eq!(candle.num_trades, 189);
+    }
+
+    #[test]
+    fn test_candle_subscription() {
+        let sub = Subscription::Candle {
+            coin: "BTC".to_string(),
+            interval: "1m".to_string(),
+        };
+
+        let json = serde_json::to_string(&sub).unwrap();
+        let deserialized: Subscription = serde_json::from_str(&json).unwrap();
+        assert_eq!(sub, deserialized);
+    }
+
+    #[test]
+    fn test_incoming_candle() {
+        let json = r#"{
+            "channel": "candle",
+            "data": {
+                "t": 1681923600000,
+                "T": 1681924499999,
+                "s": "ETH",
+                "i": "1h",
+                "o": "1850.5",
+                "h": "1855.0",
+                "l": "1848.0",
+                "c": "1852.3",
+                "v": "125.45",
+                "n": 450
+            }
+        }"#;
+
+        let incoming: Incoming = serde_json::from_str(json).unwrap();
+        match incoming {
+            Incoming::Candle(candle) => {
+                assert_eq!(candle.coin, "ETH");
+                assert_eq!(candle.interval, "1h");
+                assert_eq!(candle.open.to_string(), "1850.5");
+                assert_eq!(candle.close.to_string(), "1852.3");
+            }
+            _ => panic!("Expected Incoming::Candle"),
+        }
     }
 
     #[test]

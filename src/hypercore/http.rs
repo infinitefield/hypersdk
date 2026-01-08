@@ -56,8 +56,8 @@ use url::Url;
 
 use super::signing::*;
 use crate::hypercore::{
-    ActionError, Chain, Cloid, Dex, OidOrCloid, PerpMarket, Signature, SpotMarket, SpotToken,
-    mainnet_url, testnet_url,
+    ActionError, CandleInterval, Chain, Cloid, Dex, OidOrCloid, PerpMarket, Signature, SpotMarket,
+    SpotToken, mainnet_url, testnet_url,
     types::{
         Action, ApiResponse, BasicOrder, BatchCancel, BatchCancelCloid, BatchModify, BatchOrder,
         Fill, InfoRequest, OkResponse, OrderResponseStatus, OrderUpdate, ScheduleCancel, SendAsset,
@@ -441,6 +441,77 @@ impl Client {
             Response::Order { order } => Some(order),
             Response::UnknownOid => None,
         })
+    }
+
+    /// Returns historical candlestick data for a market.
+    ///
+    /// Retrieves OHLCV (Open, High, Low, Close, Volume) candlestick data for the specified
+    /// market and time range. Only the most recent 5000 candles are available.
+    ///
+    /// # Parameters
+    ///
+    /// - `coin`: Market symbol (e.g., "BTC", "ETH"). For HIP-3 assets, prefix with dex name (e.g., "xyz:XYZ100")
+    /// - `interval`: Candle interval (e.g., "1m", "15m", "1h", "1d")
+    /// - `start_time`: Start time in milliseconds
+    /// - `end_time`: End time in milliseconds
+    ///
+    /// # Available Intervals
+    ///
+    /// - Minutes: 1m, 3m, 5m, 15m, 30m
+    /// - Hours: 1h, 2h, 4h, 8h, 12h
+    /// - Days: 1d, 3d, 1w, 1M
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use hypersdk::hypercore::{self, CandleInterval};
+    /// use chrono::{Utc, Duration};
+    ///
+    /// # async fn example() -> anyhow::Result<()> {
+    /// let client = hypercore::mainnet();
+    ///
+    /// // Get last 100 15-minute candles
+    /// let end_time = Utc::now().timestamp_millis() as u64;
+    /// let start_time = (Utc::now() - Duration::hours(25)).timestamp_millis() as u64;
+    ///
+    /// let candles = client
+    ///     .candle_snapshot("BTC", CandleInterval::FifteenMinutes, start_time, end_time)
+    ///     .await?;
+    ///
+    /// for candle in candles {
+    ///     println!("BTC: O:{} H:{} L:{} C:{} V:{}",
+    ///         candle.open, candle.high, candle.low, candle.close, candle.volume);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn candle_snapshot(
+        &self,
+        coin: impl Into<String>,
+        interval: CandleInterval,
+        start_time: u64,
+        end_time: u64,
+    ) -> Result<Vec<super::types::Candle>> {
+        let mut api_url = self.base_url.clone();
+        api_url.set_path("/info");
+
+        let req = super::types::CandleSnapshotRequest {
+            coin: coin.into(),
+            interval,
+            start_time,
+            end_time,
+        };
+
+        let data = self
+            .http_client
+            .post(api_url)
+            .json(&InfoRequest::CandleSnapshot { req })
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        Ok(data)
     }
 
     /// Retrieves spot token balances for a user.

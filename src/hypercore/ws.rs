@@ -200,15 +200,6 @@ impl Connection {
     /// The subscription will persist across reconnections. If you're already
     /// subscribed to this channel, this is a no-op.
     ///
-    /// # Available Subscriptions
-    ///
-    /// - `Subscription::Trades { coin }`: Real-time trades for a market
-    /// - `Subscription::L2Book { coin }`: Order book updates for a market
-    /// - `Subscription::Bbo { coin }`: Best bid/offer for a market
-    /// - `Subscription::AllMids { dex }`: Mid prices for all markets
-    /// - `Subscription::OrderUpdates { user }`: Your order status changes
-    /// - `Subscription::UserFills { user }`: Your trade fills
-    ///
     /// # Example
     ///
     /// Subscribe to market data:
