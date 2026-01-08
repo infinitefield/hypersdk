@@ -25,15 +25,59 @@ This SDK provides:
 - **HIP-3 support**: Query perpetual markets from multiple DEXes
 - **CLI tool** (`hypecli`): Command-line interface for Hyperliquid (will be extended in the future)
 
-## Design choices
+## Design Choices
 
-- [alloy](https://alloy.rs/) is the preferred crate for interacting with EVM and Hyperliquid L1 signatures.
-- [rust_decimal](https://docs.rs/rust_decimal) is the go-to for high-precision decimals. For certain EVM types
-  rust_decimal might not be enough. This crate is used to convert from String representation in the WebSocket
-  paylaods to a high-precision decimal number that can be easily treated and converted to other types of fixed-point
-  numbers.
-- [yawc](https://docs.rs/yawc) for the WebSocket implementation given that it is a zero-copy implementation of the WebSocket
-  protocol supporting per-message deflate.
+### Core Dependencies
+
+**[alloy](https://alloy.rs/)** - EVM and signature handling
+
+- Used for all EVM interactions and Hyperliquid L1 signatures
+- Provides type-safe Ethereum primitives and signing utilities
+
+**[rust_decimal](https://docs.rs/rust_decimal)** - High-precision decimals
+
+- Primary choice for financial calculations requiring precision
+- Converts WebSocket string payloads to high-precision decimal numbers
+- Can be easily converted to other fixed-point number types
+- Note: Some specialized EVM types may require alternative approaches
+
+**[yawc](https://docs.rs/yawc)** - WebSocket implementation
+
+- Zero-copy WebSocket protocol implementation
+- Supports per-message deflate compression
+- Optimized for performance-critical applications
+
+### Async Design: `impl Future` vs `async`
+
+**Why use `impl Future<Output = Result<...>> + Send + 'static` instead of `async`?**
+
+The Rust compiler generates complete [state machines](https://jeffmcbride.net/blog/2025/05/16/rust-async-functions-as-state-machines/) from the `async` keyword, but there's an important caveat:
+
+When a function captures `&self`, the compiler prevents spawning it with `tokio::spawn`.
+This is due to futures not executing until `.await` is called.
+The compiler can't guarantee the `&self` object will live for `'static`.
+Thus, using `impl Future<...>` explicitly tells the compiler the returned future is `Send` and `'static`.
+
+**Practical Benefits:**
+
+```rust
+// Direct spawning (fire and forget)
+tokio::spawn(client.place());
+
+// Or deferred spawning
+let future = client.place();
+tokio::spawn(async move {
+    let res = future.await;
+    match res {
+        ...
+    }
+})
+```
+
+**See for yourself:**
+
+- [Without `impl Future`](https://play.rust-lang.org/?version=stable&mode=debug&edition=2024&gist=fa6d79a7aaca5d63f53e409de375708c) - Doesn't compile with `tokio::spawn`
+- [With `impl Future`](https://play.rust-lang.org/?version=stable&mode=debug&edition=2024&gist=d2e1fc1733b8e9c4a0490e8563678b2c) - Compiles and works correctly
 
 ## Installation
 
