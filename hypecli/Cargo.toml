@@ -4,13 +4,13 @@ version = "0.1.0"
 edition = "2024"
 authors = ["Dario <dario@infinitefieldtrading.com>"]
 description = "CLI tool for interacting with Hyperliquid via hypersdk"
-repository = "https://github.com/dgrr/hypersdk"
-homepage = "https://github.com/dgrr/hypersdk"
+repository = "https://github.com/infinitefield/hypersdk"
+homepage = "https://github.com/infinitefield/hypersdk"
 license = "MPL-2.0"
 readme = "README.md"
 keywords = ["hyperliquid", "cli", "trading", "dex", "perps"]
 categories = ["command-line-utilities", "cryptography::cryptocurrencies"]
-documentation = "https://github.com/dgrr/hypersdk"
+documentation = "https://docs.rs/hypersdk"
 rust-version = "1.85.0"
 include = [
   "src/**",
@@ -29,6 +29,6 @@ tokio = { version = "1.43.1", features = [
     "macros",
     "signal",
 ] }
-anyhow = "1.0.100"
+anyhow = "1"
 tabwriter = "1.4.0"
 enum_dispatch = "0.3.13"
