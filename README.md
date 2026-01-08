@@ -185,6 +185,7 @@ use hypersdk::hyperevm::uniswap;
 async fn main() -> anyhow::Result<()> {
     let contracts = uniswap::Contracts::mainnet();
     let client = uniswap::Client::mainnet(contracts).await?;
+    let user_address = "0x...".parse().unwrap();
 
     // Get pool price
     let price = client.get_pool_price(token0, token1, 3000).await?;
