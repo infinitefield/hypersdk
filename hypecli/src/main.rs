@@ -1,3 +1,6 @@
+mod multisig;
+mod utils;
+
 use std::io::Write;
 use std::io::stdout;
 
@@ -5,9 +8,12 @@ use clap::Args;
 use clap::{Parser, Subcommand};
 use enum_dispatch::enum_dispatch;
 use hypersdk::Address;
+use hypersdk::Decimal;
 use hypersdk::hypercore;
+use hypersdk::hypercore::Chain;
 use hypersdk::hyperevm;
 use hypersdk::hyperevm::morpho;
+use iroh_tickets::endpoint::EndpointTicket;
 
 #[derive(Parser)]
 #[command(author, version)]
@@ -19,9 +25,10 @@ struct Cli {
 
 #[enum_dispatch]
 trait Run {
-    async fn run(&self) -> anyhow::Result<()>;
+    async fn run(self) -> anyhow::Result<()>;
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 #[enum_dispatch(Run)]
 enum Commands {
@@ -33,6 +40,9 @@ enum Commands {
     SpotBalances(SpotBalancesCmd),
     /// Query an addresses' morpho balance
     MorphoPosition(MorphoPositionCmd),
+    /// Sign
+    #[command(subcommand)]
+    Multisig(MultiSigCmd),
 }
 
 #[tokio::main]
@@ -41,11 +51,83 @@ async fn main() -> anyhow::Result<()> {
     args.command.run().await
 }
 
+/// Multi-sig regardless of your location.
+///
+/// This commands setups up a peer-to-peer communication
+/// to allow for decentralized multi-sig.
+#[derive(Subcommand)]
+#[enum_dispatch(Run)]
+enum MultiSigCmd {
+    Sign(MultiSigSign),
+    SendAsset(MultiSigSendAsset),
+}
+
+#[derive(Args)]
+struct MultiSigCommon {
+    #[arg(long)]
+    pub private_key: Option<String>,
+    /// Foundry keystore.
+    #[arg(long)]
+    pub keystore: Option<String>,
+    /// Keystore password. Otherwise it'll be prompted.
+    #[arg(long)]
+    pub password: Option<String>,
+    /// Multi-sig wallet.
+    #[arg(long)]
+    pub multi_sig_addr: Address,
+    #[arg(long)]
+    pub chain: Chain,
+}
+
+#[derive(Args, derive_more::Deref)]
+struct MultiSigSendAsset {
+    #[deref]
+    #[command(flatten)]
+    pub common: MultiSigCommon,
+    /// Destination address.
+    #[arg(long)]
+    pub to: Address,
+    /// Token to send.
+    #[arg(long)]
+    pub token: String,
+    /// Amount to send.
+    #[arg(long)]
+    pub amount: Decimal,
+    /// Source DEX. Can be "spot" or a dex
+    #[arg(long)]
+    pub source: Option<String>,
+    /// Destination DEX. Can be "spot" or a dex
+    #[arg(long)]
+    pub dest: Option<String>,
+}
+
+impl Run for MultiSigSendAsset {
+    async fn run(self) -> anyhow::Result<()> {
+        multisig::send_asset(self).await
+    }
+}
+
+#[derive(Args, derive_more::Deref)]
+struct MultiSigSign {
+    #[deref]
+    #[command(flatten)]
+    pub common: MultiSigCommon,
+    /// Endpoint to connect to.
+    #[arg(long)]
+    pub connect: EndpointTicket,
+}
+
+impl Run for MultiSigSign {
+    async fn run(self) -> anyhow::Result<()> {
+        multisig::sign(self).await
+    }
+}
+
 #[derive(Args)]
 struct PerpsCmd;
 
 impl Run for PerpsCmd {
-    async fn run(&self) -> anyhow::Result<()> {
+    async fn run(self) -> anyhow::Result<()> {
         let core = hypercore::mainnet();
         let perps = core.perps().await?;
         let mut writer = tabwriter::TabWriter::new(stdout());
@@ -77,7 +159,7 @@ impl Run for PerpsCmd {
 struct SpotCmd;
 
 impl Run for SpotCmd {
-    async fn run(&self) -> anyhow::Result<()> {
+    async fn run(self) -> anyhow::Result<()> {
         let core = hypercore::mainnet();
         let markets = core.spot().await?;
         let mut writer = tabwriter::TabWriter::new(stdout());
@@ -112,7 +194,7 @@ struct SpotBalancesCmd {
 }
 
 impl Run for SpotBalancesCmd {
-    async fn run(&self) -> anyhow::Result<()> {
+    async fn run(self) -> anyhow::Result<()> {
         let core = hypercore::mainnet();
         let balances = core.user_balances(self.user).await?;
         let mut writer = tabwriter::TabWriter::new(stdout());
@@ -153,7 +235,7 @@ struct MorphoPositionCmd {
 }
 
 impl Run for MorphoPositionCmd {
-    async fn run(&self) -> anyhow::Result<()> {
+    async fn run(self) -> anyhow::Result<()> {
         let provider = hyperevm::mainnet_with_url(&self.rpc_url).await?;
         let client = hyperevm::morpho::Client::new(provider);
         let morpho = client.instance(self.contract);

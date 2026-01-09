@@ -1738,6 +1738,7 @@ pub struct SendToken(pub SpotToken);
 
 impl fmt::Display for SendToken {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // write!(f, "{}:{:x}", self.0.name, self.0.token_id)
         write!(f, "{}", self.0.name)
     }
 }
