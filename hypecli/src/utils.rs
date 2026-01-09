@@ -1,3 +1,11 @@
+//! Utility functions for multi-sig operations and gossip networking.
+//!
+//! This module provides helper functions for:
+//! - Creating gossip network topics from multi-sig addresses
+//! - Finding and loading signers (private keys, keystores, Ledger)
+//! - Starting gossip nodes for peer-to-peer communication
+//! - Signing multi-sig actions
+
 use std::{env::home_dir, str::FromStr};
 
 use alloy::signers::{self, Signer, ledger::LedgerSigner};
@@ -15,21 +23,68 @@ use iroh::{
 use iroh_gossip::{Gossip, TopicId};
 use iroh_tickets::endpoint::EndpointTicket;
 
-use crate::MultiSigCommon;
+use crate::multisig::MultiSigCommon;
 
+/// Creates a deterministic gossip topic ID from a multi-sig address.
+///
+/// This ensures all participants in a multi-sig transaction use the same
+/// gossip topic for coordination.
+///
+/// # Arguments
+///
+/// * `multi_sig_addr` - The multi-sig wallet address
+///
+/// # Returns
+///
+/// A 32-byte TopicId derived from the address (first 20 bytes are the address,
+/// remaining bytes are zero-padded).
 pub fn make_topic(multi_sig_addr: Address) -> TopicId {
     let mut topic_bytes = [0u8; 32];
     topic_bytes[0..20].copy_from_slice(&multi_sig_addr[..]);
     TopicId::from_bytes(topic_bytes)
 }
 
-pub fn make_key(signer: &impl Signer) -> SecretKey {
-    let public_address = signer.address();
-    let mut address_bytes = [0u8; 32];
-    address_bytes[0..20].copy_from_slice(&public_address[..]);
-    SecretKey::from_bytes(&address_bytes)
+/// Generates a random secret key for the gossip node.
+///
+/// Each gossip session uses a fresh ephemeral key rather than deriving
+/// from the signer's key for better privacy.
+///
+/// # Arguments
+///
+/// * `_signer` - The signer (unused, kept for potential future use)
+///
+/// # Returns
+///
+/// A randomly generated SecretKey for the Iroh endpoint.
+pub fn make_key(_signer: &impl Signer) -> SecretKey {
+    // let public_address = signer.address();
+    // let mut address_bytes = [0u8; 32];
+    // address_bytes[0..20].copy_from_slice(&public_address[..]);
+    // SecretKey::from_bytes(&address_bytes)
+    SecretKey::generate(&mut rand::rng())
 }
 
+/// Starts a gossip node for peer-to-peer multi-sig coordination.
+///
+/// Creates an Iroh endpoint with DNS and mDNS discovery, initializes
+/// the gossip protocol, and returns the necessary components for
+/// communication.
+///
+/// # Arguments
+///
+/// * `key` - Secret key for the endpoint
+/// * `wait_online` - Whether to wait for the endpoint to be online before returning
+///
+/// # Returns
+///
+/// A tuple containing:
+/// - `EndpointTicket`: Connection ticket for peers to join
+/// - `Gossip`: Gossip protocol instance
+/// - `Router`: Protocol router for managing connections
+///
+/// # Errors
+///
+/// Returns an error if the endpoint fails to bind or come online.
 pub async fn start_gossip(
     key: iroh::SecretKey,
     wait_online: bool,
@@ -57,6 +112,32 @@ pub async fn start_gossip(
     Ok((ticket, gossip, router))
 }
 
+/// Finds and loads a signer from various sources.
+///
+/// Attempts to load a signer in the following priority order:
+/// 1. Private key (if provided via `--private-key`)
+/// 2. Foundry keystore (if provided via `--keystore`)
+/// 3. Ledger hardware wallet (scans first 10 derivation paths)
+///
+/// For Ledger devices, the function searches through derivation paths
+/// until it finds one that matches an address in `searching_for`.
+///
+/// # Arguments
+///
+/// * `cmd` - Common multi-sig command parameters containing credentials
+/// * `searching_for` - List of authorized addresses to search for
+///
+/// # Returns
+///
+/// A boxed signer that matches one of the authorized addresses.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - Private key is invalid
+/// - Keystore file not found or password incorrect
+/// - No matching Ledger key found in first 10 paths
+/// - No signer source provided
 pub async fn find_signer(
     cmd: &MultiSigCommon,
     searching_for: &[Address],
@@ -92,6 +173,27 @@ pub async fn find_signer(
     }
 }
 
+/// Signs a multi-sig action using the provided signer.
+///
+/// Handles both EIP-712 typed data signatures and L1 action signatures
+/// depending on the action type. For multi-sig actions that support
+/// typed data, uses EIP-712 signing. Otherwise, falls back to L1
+/// action signing.
+///
+/// # Arguments
+///
+/// * `signer` - The signer to use for signing
+/// * `nonce` - Transaction nonce
+/// * `chain` - Target chain for the action
+/// * `action` - Multi-sig payload to sign
+///
+/// # Returns
+///
+/// A cryptographic signature over the action.
+///
+/// # Errors
+///
+/// Returns an error if signing fails or if the action hash cannot be computed.
 pub async fn sign<S: Signer + Send + Sync>(
     signer: &S,
     nonce: u64,

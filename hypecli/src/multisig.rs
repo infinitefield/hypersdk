@@ -3,27 +3,127 @@ use std::{
     time::Duration,
 };
 
+use clap::{Args, Subcommand};
 use futures::StreamExt;
 use hypersdk::hypercore::{
-    self, HttpClient, NonceHandler, SendAsset, SendToken, Signature,
+    self, Chain, HttpClient, NonceHandler, SendAsset, SendToken, Signature,
     raw::{Action, MultiSigAction, MultiSigPayload},
 };
+use hypersdk::{Address, Decimal};
 use indicatif::{ProgressBar, ProgressStyle};
 use iroh_gossip::api::Event;
+use iroh_tickets::endpoint::EndpointTicket;
 use serde::{Deserialize, Serialize};
 use tokio::signal::ctrl_c;
 
-use crate::{
-    MultiSigSendAsset, MultiSigSign,
-    utils::{self, find_signer, make_topic},
-};
+use crate::utils::{self, find_signer, make_topic};
 
+/// Multi-sig commands regardless of your location.
+///
+/// This commands setups up a peer-to-peer communication
+/// to allow for decentralized multi-sig.
+#[derive(Subcommand)]
+pub enum MultiSigCmd {
+    Sign(MultiSigSign),
+    SendAsset(MultiSigSendAsset),
+}
+
+impl MultiSigCmd {
+    pub async fn run(self) -> anyhow::Result<()> {
+        match self {
+            MultiSigCmd::Sign(cmd) => cmd.run().await,
+            MultiSigCmd::SendAsset(cmd) => cmd.run().await,
+        }
+    }
+}
+
+/// Common arguments for multi-signature commands.
+///
+/// These arguments are shared across all multi-sig operations to specify
+/// the signer credentials and target multi-sig wallet.
+#[derive(Args)]
+pub struct MultiSigCommon {
+    /// Private key for signing (hex format).
+    #[arg(long)]
+    pub private_key: Option<String>,
+    /// Foundry keystore.
+    #[arg(long)]
+    pub keystore: Option<String>,
+    /// Keystore password. Otherwise it'll be prompted.
+    #[arg(long)]
+    pub password: Option<String>,
+    /// Multi-sig wallet address.
+    #[arg(long)]
+    pub multi_sig_addr: Address,
+    /// Target chain for the operation.
+    #[arg(long)]
+    pub chain: Chain,
+}
+
+/// Command to initiate sending an asset via multi-sig.
+///
+/// This command creates a multi-sig transaction proposal to send assets from
+/// a multi-sig wallet. It uses peer-to-peer gossip to coordinate signatures
+/// from authorized signers.
+#[derive(Args, derive_more::Deref)]
+pub struct MultiSigSendAsset {
+    #[deref]
+    #[command(flatten)]
+    pub common: MultiSigCommon,
+    /// Destination address.
+    #[arg(long)]
+    pub to: Address,
+    /// Token to send (symbol name, e.g., "USDC", "HYPE").
+    #[arg(long)]
+    pub token: String,
+    /// Amount to send.
+    #[arg(long)]
+    pub amount: Decimal,
+    /// Source DEX. Can be "spot" or a dex name.
+    #[arg(long)]
+    pub source: Option<String>,
+    /// Destination DEX. Can be "spot" or a dex name.
+    #[arg(long)]
+    pub dest: Option<String>,
+}
+
+impl MultiSigSendAsset {
+    pub async fn run(self) -> anyhow::Result<()> {
+        send_asset(self).await
+    }
+}
+
+/// Command to sign a multi-sig transaction proposal.
+///
+/// This command connects to a peer who initiated a multi-sig transaction
+/// and signs the proposed action if approved. Uses peer-to-peer gossip
+/// for decentralized coordination.
+#[derive(Args, derive_more::Deref)]
+pub struct MultiSigSign {
+    #[deref]
+    #[command(flatten)]
+    pub common: MultiSigCommon,
+    /// Endpoint ticket to connect to the transaction initiator.
+    #[arg(long)]
+    pub connect: EndpointTicket,
+}
+
+impl MultiSigSign {
+    pub async fn run(self) -> anyhow::Result<()> {
+        sign(self).await
+    }
+}
+
+/// Messages exchanged over the gossip network during multi-sig coordination.
 #[derive(Serialize, Deserialize)]
 enum Message {
+    /// A proposed action with its nonce that needs to be signed.
     Action(u64, MultiSigPayload),
+    /// A signature from an authorized signer.
     Signature(Signature),
 }
 
+/// Animation strings for the connecting spinner.
 const CONNECTING_STRINGS: &[&str] = &[
     "Connecting",
     "COnnecting",
@@ -37,7 +137,6 @@ const CONNECTING_STRINGS: &[&str] = &[
     "ConnectinG",
 ];
 
-/// Initiate sending an asset.
 pub async fn send_asset(cmd: MultiSigSendAsset) -> anyhow::Result<()> {
     let hl = HttpClient::new(cmd.chain);
     let multisig_config = hl.multi_sig_config(cmd.multi_sig_addr).await?;
