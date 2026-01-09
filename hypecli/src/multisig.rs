@@ -3,11 +3,12 @@ use std::{
     time::Duration,
 };
 
+use alloy::signers::Signer;
 use clap::{Args, Subcommand};
 use futures::StreamExt;
 use hypersdk::hypercore::{
     self, Chain, HttpClient, NonceHandler, SendAsset, SendToken, Signature,
-    raw::{Action, MultiSigAction, MultiSigPayload},
+    raw::{Action, ConvertToMultiSigUser, MultiSigAction, MultiSigPayload},
 };
 use hypersdk::{Address, Decimal};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -26,6 +27,7 @@ use crate::utils::{self, find_signer, make_topic};
 pub enum MultiSigCmd {
     Sign(MultiSigSign),
     SendAsset(MultiSigSendAsset),
+    ConvertToNormalUser(MultiSigConvertToNormalUser),
 }
 
 impl MultiSigCmd {
@@ -33,6 +35,7 @@ impl MultiSigCmd {
         match self {
             MultiSigCmd::Sign(cmd) => cmd.run().await,
             MultiSigCmd::SendAsset(cmd) => cmd.run().await,
+            MultiSigCmd::ConvertToNormalUser(cmd) => cmd.run().await,
         }
     }
 }
@@ -137,19 +140,18 @@ const CONNECTING_STRINGS: &[&str] = &[
     "ConnectinG",
 ];
 
-pub async fn send_asset(cmd: MultiSigSendAsset) -> anyhow::Result<()> {
-    let hl = HttpClient::new(cmd.chain);
-    let multisig_config = hl.multi_sig_config(cmd.multi_sig_addr).await?;
-    let signer = find_signer(&cmd.common, &multisig_config.authorized_users).await?;
+/// Execute a multisig action by collecting signatures from authorized signers.
+///
+/// This is the core multisig execution logic used by all multisig commands.
+async fn execute_multisig_action(
+    multi_sig_addr: Address,
+    hl: HttpClient,
+    signer: Box<dyn Signer + Send + Sync>,
+    action: Action,
+    nonce: u64,
+    multisig_config: &hypersdk::hypercore::MultiSigConfig,
+) -> anyhow::Result<()> {
     let key = utils::make_key(&signer);
-
-    println!("Using signer {}", signer.address());
-
-    let tokens = hypercore::mainnet().spot_tokens().await?;
-    let token = tokens
-        .iter()
-        .find(|token| token.name == cmd.token)
-        .ok_or(anyhow::anyhow!("token {} not found", cmd.token))?;
 
     let pb = ProgressBar::new_spinner();
     pb.enable_steady_tick(Duration::from_millis(100));
@@ -163,24 +165,10 @@ pub async fn send_asset(cmd: MultiSigSendAsset) -> anyhow::Result<()> {
 
     pb.finish_and_clear();
 
-    let topic_id = make_topic(cmd.multi_sig_addr);
-    let nonce = NonceHandler::default().next();
-
-    let action = Action::from(
-        SendAsset {
-            destination: cmd.to,
-            source_dex: cmd.source.clone().unwrap_or_default(),
-            destination_dex: cmd.dest.clone().unwrap_or_default(),
-            token: SendToken(token.clone()),
-            amount: cmd.amount,
-            from_sub_account: "".to_owned(),
-            nonce,
-        }
-        .into_action(cmd.chain),
-    );
+    let topic_id = make_topic(multi_sig_addr);
 
     let action = MultiSigPayload {
-        multi_sig_user: cmd.multi_sig_addr.to_string().to_lowercase(),
+        multi_sig_user: multi_sig_addr.to_string().to_lowercase(),
         outer_signer: signer.address().to_string().to_lowercase(),
         action: Box::new(action),
     };
@@ -192,16 +180,16 @@ pub async fn send_asset(cmd: MultiSigSendAsset) -> anyhow::Result<()> {
 
     if multisig_config.authorized_users.contains(&signer.address()) {
         println!("Using current signer {} to sign message", signer.address());
-        signatures.push(utils::sign(&signer, nonce, cmd.chain, action.clone()).await?);
+        signatures.push(utils::sign(&signer, nonce, hl.chain(), action.clone()).await?);
         pb.inc(1);
     }
 
-    // just subscribe to the topic
+    // Subscribe to the topic
     let mut topic = gossip.subscribe(topic_id, vec![]).await?;
 
     pb.set_message(format!(
         "Authorized users: {:?}\n\nhypecli multisig sign --multi-sig-addr {} --chain {} --connect {}",
-        multisig_config.authorized_users, cmd.multi_sig_addr, cmd.chain, ticket
+        multisig_config.authorized_users, multi_sig_addr, hl.chain(), ticket
     ));
 
     while signatures.len() < multisig_config.threshold {
@@ -215,12 +203,11 @@ pub async fn send_asset(cmd: MultiSigSendAsset) -> anyhow::Result<()> {
                     Some(Ok(event)) => {
                         match event {
                             Event::NeighborUp(_public_key) => {
-                                // println!("Neighbor up: {public_key}");
                                 let reply = rmp_serde::to_vec(&Message::Action(nonce, action.clone()))?;
-                                topic.broadcast_neighbors(reply.into()).await?;
+                                topic.broadcast(reply.into()).await?;
                             }
                             Event::NeighborDown(_public_key) => {
-                                // println!("Neighbor down: {public_key}");
+                                // ignore
                             }
                             Event::Received(incoming) => {
                                 let msg: Message = rmp_serde::from_slice(&incoming.content)?;
@@ -249,14 +236,21 @@ pub async fn send_asset(cmd: MultiSigSendAsset) -> anyhow::Result<()> {
 
     pb.finish_and_clear();
 
-    let action = MultiSigAction {
+    let multi_sig_action = MultiSigAction {
         signature_chain_id: "0x66eee".to_string(),
         signatures,
         payload: action,
     };
 
-    let req = hypercore::signing::multisig_lead_msg(&signer, action, nonce, None, None, cmd.chain)
-        .await?;
+    let req = hypercore::signing::multisig_lead_msg(
+        &signer,
+        multi_sig_action,
+        nonce,
+        None,
+        None,
+        hl.chain(),
+    )
+    .await?;
     let res = hl.send(req).await?;
     println!("{res:?}");
 
@@ -265,7 +259,97 @@ pub async fn send_asset(cmd: MultiSigSendAsset) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn sign(cmd: MultiSigSign) -> anyhow::Result<()> {
+async fn send_asset(cmd: MultiSigSendAsset) -> anyhow::Result<()> {
+    let hl = HttpClient::new(cmd.chain);
+    let multisig_config = hl.multi_sig_config(cmd.multi_sig_addr).await?;
+    let signer = find_signer(&cmd.common, &multisig_config.authorized_users).await?;
+
+    println!("Using signer {}", signer.address());
+
+    let tokens = hypercore::mainnet().spot_tokens().await?;
+    let token = tokens
+        .iter()
+        .find(|token| token.name == cmd.token)
+        .ok_or(anyhow::anyhow!("token {} not found", cmd.token))?;
+
+    let nonce = NonceHandler::default().next();
+
+    let action = Action::from(
+        SendAsset {
+            destination: cmd.to,
+            source_dex: cmd.source.clone().unwrap_or_default(),
+            destination_dex: cmd.dest.clone().unwrap_or_default(),
+            token: SendToken(token.clone()),
+            amount: cmd.amount,
+            from_sub_account: "".to_owned(),
+            nonce,
+        }
+        .into_action(cmd.chain),
+    );
+
+    execute_multisig_action(
+        cmd.multi_sig_addr,
+        hl,
+        signer,
+        action,
+        nonce,
+        &multisig_config,
+    )
+    .await
+}
+
+/// Command to convert a multi-signature user back to a normal user.
+///
+/// This command uses peer-to-peer gossip to collect signatures from authorized
+/// signers to convert a multisig account back to a regular single-signer account.
+#[derive(Args, derive_more::Deref)]
+pub struct MultiSigConvertToNormalUser {
+    #[deref]
+    #[command(flatten)]
+    pub common: MultiSigCommon,
+}
+
+impl MultiSigConvertToNormalUser {
+    pub async fn run(self) -> anyhow::Result<()> {
+        convert_to_normal_user(self).await
+    }
+}
+
+async fn convert_to_normal_user(cmd: MultiSigConvertToNormalUser) -> anyhow::Result<()> {
+    let hl = HttpClient::new(cmd.chain);
+    let multisig_config = hl.multi_sig_config(cmd.multi_sig_addr).await?;
+    let signer = find_signer(&cmd.common, &multisig_config.authorized_users).await?;
+
+    println!("Using signer {}", signer.address());
+    println!(
+        "Converting multisig account {} to normal user",
+        cmd.multi_sig_addr
+    );
+
+    let nonce = NonceHandler::default().next();
+
+    let action = Action::ConvertToMultiSigUser(ConvertToMultiSigUser {
+        signature_chain_id: cmd.chain.arbitrum_id().to_owned(),
+        hyperliquid_chain: cmd.chain,
+        signers: hypersdk::hypercore::raw::SignersConfig {
+            authorized_users: vec![], // Empty to convert to normal user
+            threshold: 0,
+        },
+        nonce,
+    });
+
+    execute_multisig_action(
+        cmd.multi_sig_addr,
+        hl,
+        signer,
+        action,
+        nonce,
+        &multisig_config,
+    )
+    .await
+}
+
+async fn sign(cmd: MultiSigSign) -> anyhow::Result<()> {
     let multisig_config = HttpClient::new(cmd.chain)
         .multi_sig_config(cmd.multi_sig_addr)
         .await?;
@@ -301,7 +385,9 @@ pub async fn sign(cmd: MultiSigSign) -> anyhow::Result<()> {
                 println!("Neighbor down: {public_key}");
             }
             Event::Received(incoming) => {
-                let msg: Message = rmp_serde::from_slice(&incoming.content)?;
+                let msg: Message = rmp_serde::from_slice(&incoming.content).map_err(|err| {
+                    anyhow::anyhow!("unable to decode content: {err}: {:?}", incoming.content)
+                })?;
                 match msg {
                     Message::Action(nonce, action) => {
                         println!("{:#?}", action);
@@ -312,7 +398,7 @@ pub async fn sign(cmd: MultiSigSign) -> anyhow::Result<()> {
                         if input[0] == b'y' {
                             let signature = utils::sign(&signer, nonce, cmd.chain, action).await?;
                             let data = rmp_serde::to_vec(&Message::Signature(signature))?;
-                            topic.broadcast_neighbors(data.into()).await?;
+                            topic.broadcast(data.into()).await?;
                         } else {
                             println!("Rejected");
                         }

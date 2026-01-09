@@ -12,7 +12,7 @@ use alloy::signers::{self, Signer, ledger::LedgerSigner};
 use hypersdk::{
     Address,
     hypercore::{
-        self, Chain, PrivateKeySigner, Signature, raw::MultiSigPayload, signing::sign_l1_action,
+        Chain, PrivateKeySigner, Signature, raw::MultiSigPayload, signing::sign_l1_action,
     },
 };
 use iroh::{
@@ -203,8 +203,11 @@ pub async fn sign<S: Signer + Send + Sync>(
     let multi_sig_user = action.multi_sig_user.parse().unwrap();
     let lead = action.outer_signer.parse().unwrap();
 
-    if let Some(mut typed_data) = action.action.typed_data_multisig(multi_sig_user, lead) {
-        typed_data.domain = hypercore::types::MULTISIG_MAINNET_EIP712_DOMAIN;
+    if let Some(typed_data) = action
+        .action
+        .typed_data_multisig(multi_sig_user, lead, chain)
+    {
+        // typed_data.domain = hypercore::types::MULTISIG_MAINNET_EIP712_DOMAIN;
         let sig = signer.sign_dynamic_typed_data(&typed_data).await?;
         Ok(sig.into())
     } else {
