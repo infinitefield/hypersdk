@@ -6,11 +6,13 @@ use std::{
 use alloy::signers::Signer;
 use clap::{Args, Subcommand};
 use futures::StreamExt;
-use hypersdk::hypercore::{
-    self, HttpClient, NonceHandler, SendAsset, SendToken, Signature,
-    raw::{self, Action, ConvertToMultiSigUser, MultiSigAction, MultiSigPayload},
+use hypersdk::{
+    Address, Decimal,
+    hypercore::{
+        self, HttpClient, NonceHandler, SendAsset, SendToken, Signature,
+        raw::{self, Action, ConvertToMultiSigUser, MultiSigAction, MultiSigPayload},
+    },
 };
-use hypersdk::{Address, Decimal};
 use indicatif::{ProgressBar, ProgressStyle};
 use iroh_gossip::api::Event;
 use iroh_tickets::endpoint::EndpointTicket;

@@ -6,8 +6,7 @@
 use std::io::{Write, stdout};
 
 use clap::Args;
-use hypersdk::hyperevm::morpho;
-use hypersdk::{Address, hyperevm};
+use hypersdk::{Address, hyperevm, hyperevm::morpho};
 
 /// Command to query a user's position in a Morpho lending market.
 ///

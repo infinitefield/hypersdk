@@ -44,7 +44,7 @@ iroh-gossip = "0.95.0"
 tokio-util = { version = "0.7.18", features = ["codec"] }
 futures = { version = "0.3.31", default-features = false, features = ["std"] }
 iroh-tickets = "0.2.0"
-alloy = { version = "1.0.22", default-features = false, features = ["signer-keystore", "signer-ledger", "signer-local", "signers"] }
+alloy = { version = "1.0.22", default-features = false, features = ["reqwest-rustls-tls", "signer-keystore", "signer-ledger", "signer-local", "signers"] }
 derive_more = { version = "2.1.1", features = ["deref"] }
 rpassword = "7.4.0"
 indicatif = "0.18.3"

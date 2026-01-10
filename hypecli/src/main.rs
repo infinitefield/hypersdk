@@ -5,9 +5,8 @@ mod multisig;
 mod to_multisig;
 mod utils;
 
-use clap::{Args, Parser};
-
 use balances::SpotBalancesCmd;
+use clap::{Args, Parser};
 use hypersdk::hypercore::Chain;
 use markets::{PerpsCmd, SpotCmd};
 use morpho::MorphoPositionCmd;
