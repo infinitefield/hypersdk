@@ -796,6 +796,6 @@ mod tests {
     fn test_deser() {
         let text =
             r#"{"status":"ok","response":{"type":"cancel","data":{"statuses":["success"]}}}"#;
-        let data: Response = serde_json::from_str(text).unwrap();
+        let _data: Response = serde_json::from_str(text).unwrap();
     }
 }
