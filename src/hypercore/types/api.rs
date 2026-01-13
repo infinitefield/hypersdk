@@ -27,7 +27,7 @@ use super::solidity;
 /// Request for an action.
 ///
 /// Contains the action, a nonce, signature, optional vault address, and optional expiry.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActionRequest {
     /// Action.
@@ -40,6 +40,22 @@ pub struct ActionRequest {
     pub vault_address: Option<Address>,
     /// Timestamp in milliseconds
     pub expires_after: Option<u64>,
+}
+
+impl ActionRequest {
+    /// Recover the user who signed an action.
+    ///
+    /// See more [`Action::recover`].
+    pub fn recover(&self, chain: Chain) -> anyhow::Result<Address> {
+        self.action.recover(
+            &self.signature,
+            self.nonce,
+            self.vault_address,
+            self.expires_after
+                .and_then(|ts| DateTime::<Utc>::from_timestamp_millis(ts as i64)),
+            chain,
+        )
+    }
 }
 
 /// An action that requires signing.
@@ -72,6 +88,8 @@ pub enum Action {
     ApproveAgent(ApproveAgent),
     /// Convert to multi-signature user.
     ConvertToMultiSigUser(ConvertToMultiSigUser),
+    /// Update isolated margin.
+    UpdateIsolatedMargin(UpdateIsolatedMargin),
     /// Multi-sig action.
     MultiSig(MultiSigAction),
     /// Invalidate a request.
@@ -174,6 +192,7 @@ impl Action {
             | Action::CancelByCloid(_)
             | Action::ScheduleCancel(_)
             | Action::EvmUserModify { .. }
+            | Action::UpdateIsolatedMargin(_)
             | Action::Noop => {
                 let connection_id = self.hash(nonce, maybe_vault_address, expires_after)?;
                 let agent = solidity::Agent {
@@ -263,6 +282,7 @@ impl Action {
             | Action::CancelByCloid(_)
             | Action::ScheduleCancel(_)
             | Action::EvmUserModify { .. }
+            | Action::UpdateIsolatedMargin(_)
             | Action::Noop => {
                 let connection_id = self.hash(nonce, maybe_vault_address, expires_after)?;
                 let agent = solidity::Agent {
@@ -350,6 +370,7 @@ impl Action {
             | Action::CancelByCloid(_)
             | Action::ScheduleCancel(_)
             | Action::EvmUserModify { .. }
+            | Action::UpdateIsolatedMargin(_)
             | Action::Noop => {
                 let expires_after =
                     maybe_expires_after.map(|after| after.timestamp_millis() as u64);
@@ -627,6 +648,20 @@ pub struct ConvertToMultiSigUser {
     pub nonce: u64,
 }
 
+/// Request to update isolated margin for a position.
+///
+/// Allows adding or removing margin from an isolated-margin position.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateIsolatedMargin {
+    /// Asset index of the position.
+    pub asset: usize,
+    /// `true` for a long position, `false` for a short position.
+    pub is_buy: bool,
+    /// Margin delta in USD (scaled integer representation).
+    pub ntli: u64,
+}
+
 /// Multi-signature action payload.
 ///
 /// Contains the multisig user address, outer signer, and the inner action to execute.
@@ -790,6 +825,8 @@ pub struct MultiSigAction {
 
 #[cfg(test)]
 mod tests {
+    use alloy::primitives::address;
+
     use super::*;
 
     #[test]
@@ -797,5 +834,16 @@ mod tests {
         let text =
             r#"{"status":"ok","response":{"type":"cancel","data":{"statuses":["success"]}}}"#;
         let _data: Response = serde_json::from_str(text).unwrap();
+    }
+
+    #[test]
+    fn update_isolated_margin() {
+        let text = r#"{"action":{"type":"updateIsolatedMargin","asset":173,"isBuy":true,"ntli":2000000},"nonce":1768223623573,"signature":{"r":"0xf85df30c97a4f2cd6b463b5f385d1f93e029791ffc9bb49fdcad2616608350e2","s":"0x3763da7c7ef7a4d7a528815bddff75b854d540487dfb1f1c75e7201f57c2ea6e","v":28}}"#;
+        let req: ActionRequest = serde_json::from_str(text).unwrap();
+        let address = req.recover(Chain::Mainnet).unwrap();
+        assert_eq!(
+            address,
+            address!("0x5eCb62791B22A3108367c2A2024019Ee7eA88431")
+        );
     }
 }

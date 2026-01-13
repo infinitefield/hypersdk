@@ -1521,6 +1521,12 @@ pub struct BatchOrder {
 /// Order grouping strategy.
 ///
 /// Determines how orders are grouped when sent in a batch.
+///
+/// # Variants
+///
+/// - `Na` – No special grouping; orders are independent.
+/// - `NormalTpsl` – Link a main order with its take-profit/stop-loss orders.
+/// - `PositionTpsl` – Attach TP/SL orders to an existing position.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub enum OrderGrouping {
@@ -1529,25 +1535,33 @@ pub enum OrderGrouping {
     PositionTpsl,
 }
 
-/// Order request.
+/// A single order to be placed on the exchange.
 ///
-/// Represents a single order within a batch.
+/// Used as an element of [`BatchOrder::orders`] when submitting one or more
+/// orders in a single request.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 #[serde_as]
 pub struct OrderRequest {
+    /// Asset index identifying the trading pair.
     #[serde(rename = "a")]
     pub asset: usize,
+    /// `true` for a buy (bid), `false` for a sell (ask).
     #[serde(rename = "b")]
     pub is_buy: bool,
+    /// Limit price for the order.
     #[serde(rename = "p", with = "rust_decimal::serde::str")]
     pub limit_px: Decimal,
+    /// Order size in base asset units.
     #[serde(rename = "s", with = "rust_decimal::serde::str")]
     pub sz: Decimal,
+    /// When `true`, the order can only reduce an existing position.
     #[serde(rename = "r")]
     pub reduce_only: bool,
+    /// Order type specifying limit or trigger parameters.
     #[serde(rename = "t")]
     pub order_type: OrderTypePlacement,
+    /// Client-supplied order ID for tracking.
     #[serde(rename = "c")]
     #[serde(
         serialize_with = "super::utils::serialize_cloid_as_hex",
@@ -1585,21 +1599,25 @@ pub enum TpSl {
 
 /// Batch modify request.
 ///
-/// Contains a list of order modifications to be applied.
+/// Contains a list of order modifications to be applied atomically.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct BatchModify {
+    /// The modifications to apply.
     pub modifies: Vec<Modify>,
 }
 
-/// Individual order modification.
+/// Modification of an existing order.
 ///
-/// References the order by ID and includes the new order data.
+/// Identifies the order to modify (by exchange-assigned ID or client ID) and
+/// provides the replacement order parameters.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Modify {
+    /// Order identifier – either a numeric `oid` or a client-supplied `cloid`.
     #[serde(with = "either::serde_untagged")]
     pub oid: OidOrCloid,
+    /// New order parameters that will replace the existing order.
     pub order: OrderRequest,
 }
 
@@ -1621,14 +1639,16 @@ pub struct BatchCancelCloid {
     pub cancels: Vec<CancelByCloid>,
 }
 
-/// Cancel request.
+/// Cancel request for a single order.
 ///
-/// References an order by asset and ID.
+/// Identifies the order to cancel by its asset index and exchange-assigned ID.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Cancel {
+    /// Asset index the order belongs to.
     #[serde(rename = "a")]
     pub asset: usize,
+    /// Exchange-assigned order ID.
     #[serde(rename = "o")]
     pub oid: u64,
 }
