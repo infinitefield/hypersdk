@@ -85,6 +85,7 @@ async fn main() -> anyhow::Result<()> {
             cloid: Cloid::random(),
         }],
         grouping: OrderGrouping::Na,
+        builder: None,
     };
 
     // Generate a unique nonce for this transaction

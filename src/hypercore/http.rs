@@ -644,6 +644,274 @@ impl Client {
         Ok(resp)
     }
 
+    /// Retrieves the clearinghouse state (perpetuals) for a user.
+    ///
+    /// Returns the full perpetuals account state including margin summaries,
+    /// positions, and withdrawable amounts.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use hypersdk::hypercore;
+    /// use hypersdk::Address;
+    ///
+    /// # async fn example() -> anyhow::Result<()> {
+    /// let client = hypercore::mainnet();
+    /// let user: Address = "0x...".parse()?;
+    /// let state = client.clearinghouse_state(user).await?;
+    ///
+    /// println!("Account value: {}", state.margin_summary.account_value);
+    /// println!("Withdrawable: {}", state.withdrawable);
+    /// println!("Positions: {}", state.asset_positions.len());
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn clearinghouse_state(
+        &self,
+        user: Address,
+    ) -> Result<super::types::ClearinghouseState> {
+        let mut api_url = self.base_url.clone();
+        api_url.set_path("/info");
+
+        let resp = self
+            .http_client
+            .post(api_url)
+            .json(&InfoRequest::ClearinghouseState { user })
+            .send()
+            .await?
+            .json()
+            .await?;
+        Ok(resp)
+    }
+
+    /// Retrieves all sub-accounts for a master account.
+    ///
+    /// Returns detailed information about each sub-account including their
+    /// clearinghouse state and spot balances.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use hypersdk::hypercore;
+    /// use hypersdk::Address;
+    ///
+    /// # async fn example() -> anyhow::Result<()> {
+    /// let client = hypercore::mainnet();
+    /// let master: Address = "0x...".parse()?;
+    /// let sub_accounts = client.sub_accounts(master).await?;
+    ///
+    /// for sub in sub_accounts {
+    ///     println!("{}: account value {}", sub.name, sub.perp_account_value());
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn sub_accounts(&self, user: Address) -> Result<Vec<super::types::SubAccount>> {
+        let mut api_url = self.base_url.clone();
+        api_url.set_path("/info");
+
+        let resp = self
+            .http_client
+            .post(api_url)
+            .json(&InfoRequest::SubAccounts { user })
+            .send()
+            .await?
+            .json()
+            .await?;
+        Ok(resp)
+    }
+
+    /// Retrieves summaries for all vaults.
+    ///
+    /// Returns basic information about all available vaults including
+    /// TVL, leader, and whether they're open for deposits.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use hypersdk::hypercore;
+    ///
+    /// # async fn example() -> anyhow::Result<()> {
+    /// let client = hypercore::mainnet();
+    /// let vaults = client.vault_summaries().await?;
+    ///
+    /// for vault in vaults {
+    ///     println!("{}: TVL {}", vault.name, vault.tvl_decimal());
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn vault_summaries(&self) -> Result<Vec<super::types::VaultSummary>> {
+        let mut api_url = self.base_url.clone();
+        api_url.set_path("/info");
+
+        let resp = self
+            .http_client
+            .post(api_url)
+            .json(&InfoRequest::VaultSummaries)
+            .send()
+            .await?
+            .json()
+            .await?;
+        Ok(resp)
+    }
+
+    /// Retrieves detailed information about a specific vault.
+    ///
+    /// Returns full vault details including followers, APR, commission,
+    /// and portfolio history.
+    ///
+    /// # Arguments
+    ///
+    /// * `vault_address` - The address of the vault to query
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use hypersdk::hypercore;
+    /// use hypersdk::Address;
+    ///
+    /// # async fn example() -> anyhow::Result<()> {
+    /// let client = hypercore::mainnet();
+    /// let vault: Address = "0x...".parse()?;
+    /// let details = client.vault_details(vault).await?;
+    ///
+    /// println!("{}: APR {}%", details.name, details.apr_percent());
+    /// println!("Followers: {}", details.follower_count());
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn vault_details(
+        &self,
+        vault_address: Address,
+    ) -> Result<super::types::VaultDetails> {
+        self.vault_details_with_user(vault_address, None).await
+    }
+
+    /// Retrieves detailed information about a specific vault with user-specific data.
+    ///
+    /// Same as `vault_details` but includes follower-specific data for the given user.
+    ///
+    /// # Arguments
+    ///
+    /// * `vault_address` - The address of the vault to query
+    /// * `user` - User address to include follower-specific data
+    pub async fn vault_details_with_user(
+        &self,
+        vault_address: Address,
+        user: Option<Address>,
+    ) -> Result<super::types::VaultDetails> {
+        let mut api_url = self.base_url.clone();
+        api_url.set_path("/info");
+
+        let resp = self
+            .http_client
+            .post(api_url)
+            .json(&InfoRequest::VaultDetails {
+                vault_address,
+                user,
+            })
+            .send()
+            .await?
+            .json()
+            .await?;
+        Ok(resp)
+    }
+
+    /// Retrieves funding rate history for a perpetual market.
+    ///
+    /// Returns historical funding rate entries within the specified time range.
+    ///
+    /// # Arguments
+    ///
+    /// * `coin` - The market symbol (e.g., "BTC", "ETH")
+    /// * `start_time` - Start time in milliseconds
+    /// * `end_time` - Optional end time in milliseconds (defaults to now)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use hypersdk::hypercore;
+    ///
+    /// # async fn example() -> anyhow::Result<()> {
+    /// let client = hypercore::mainnet();
+    ///
+    /// // Get last 7 days of funding history
+    /// let now = std::time::SystemTime::now()
+    ///     .duration_since(std::time::UNIX_EPOCH)
+    ///     .unwrap()
+    ///     .as_millis() as u64;
+    /// let week_ago = now - (7 * 24 * 60 * 60 * 1000);
+    ///
+    /// let history = client.funding_history("BTC", week_ago, Some(now)).await?;
+    ///
+    /// for entry in history {
+    ///     println!("{}: {}%", entry.time, entry.funding_pct());
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn funding_history(
+        &self,
+        coin: impl Into<String>,
+        start_time: u64,
+        end_time: Option<u64>,
+    ) -> Result<Vec<super::types::FundingRateEntry>> {
+        let mut api_url = self.base_url.clone();
+        api_url.set_path("/info");
+
+        let resp = self
+            .http_client
+            .post(api_url)
+            .json(&InfoRequest::FundingHistory {
+                coin: coin.into(),
+                start_time,
+                end_time,
+            })
+            .send()
+            .await?
+            .json()
+            .await?;
+        Ok(resp)
+    }
+
+    /// Retrieves asset contexts (market statistics) for all perpetual markets.
+    ///
+    /// Returns current market statistics including funding rates, open interest,
+    /// and prices for all perpetual markets.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use hypersdk::hypercore;
+    ///
+    /// # async fn example() -> anyhow::Result<()> {
+    /// let client = hypercore::mainnet();
+    /// let contexts = client.asset_contexts().await?;
+    ///
+    /// for ctx in contexts {
+    ///     println!("Funding: {}%, OI: {}", ctx.funding_pct(), ctx.open_interest);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn asset_contexts(&self) -> Result<Vec<super::types::AssetCtx>> {
+        let mut api_url = self.base_url.clone();
+        api_url.set_path("/info");
+
+        // The metaAndAssetCtxs endpoint returns [meta, assetCtxs]
+        // We only need the assetCtxs part
+        let resp: (serde_json::Value, Vec<super::types::AssetCtx>) = self
+            .http_client
+            .post(api_url)
+            .json(&serde_json::json!({"type": "metaAndAssetCtxs"}))
+            .send()
+            .await?
+            .json()
+            .await?;
+        Ok(resp.1)
+    }
+
     /// Schedule cancellation.
     pub async fn schedule_cancel<S: SignerSync>(
         &self,

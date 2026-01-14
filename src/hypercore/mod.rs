@@ -93,8 +93,51 @@ use std::{
     sync::atomic::{self, AtomicU64},
 };
 
-/// Reimport signers.
+/// Re-export signers and signing traits.
 pub use alloy::signers::local::PrivateKeySigner;
+/// Re-export the Signer trait for implementing custom signers.
+pub use alloy::signers::Signer;
+/// Re-export the synchronous Signer trait.
+pub use alloy::signers::SignerSync;
+/// Re-export the Ledger hardware wallet signer.
+pub use alloy::signers::ledger::LedgerSigner;
+
+/// HD derivation path for Ledger wallets.
+///
+/// Specifies which derivation path to use when connecting to a Ledger device.
+/// Different paths correspond to different accounts on the hardware wallet.
+///
+/// # Example
+///
+/// ```no_run
+/// use hypersdk::hypercore::{HDPath, LedgerSigner};
+///
+/// # async fn example() -> anyhow::Result<()> {
+/// // Use the first Ledger Live account
+/// let path = HDPath::LedgerLive(0);
+/// let signer = LedgerSigner::new(path.into(), Some(1)).await?;
+/// # Ok(())
+/// # }
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HDPath {
+    /// Ledger Live derivation path: m/44'/60'/x'/0/0
+    LedgerLive(usize),
+    /// Legacy derivation path: m/44'/60'/0'/x
+    Legacy(usize),
+    /// Custom derivation path (BIP-44 standard)
+    Custom(usize),
+}
+
+impl From<HDPath> for alloy::signers::ledger::HDPath {
+    fn from(path: HDPath) -> Self {
+        match path {
+            HDPath::LedgerLive(index) => alloy::signers::ledger::HDPath::LedgerLive(index),
+            HDPath::Legacy(index) => alloy::signers::ledger::HDPath::Legacy(index),
+            HDPath::Custom(index) => alloy::signers::ledger::HDPath::Other(format!("m/44'/60'/0'/0/{}", index)),
+        }
+    }
+}
 use alloy::{
     dyn_abi::Eip712Domain,
     primitives::{B128, U256, address},

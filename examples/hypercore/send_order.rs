@@ -50,6 +50,7 @@ async fn main() -> anyhow::Result<()> {
                     cloid: Cloid::random(),
                 }],
                 grouping: OrderGrouping::Na,
+                builder: None,
             },
             nonce.next(),
             None,

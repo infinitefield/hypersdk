@@ -96,6 +96,14 @@ name = "websocket"
 path = "examples/hypercore/websocket.rs"
 
 [[example]]
+name = "funding_history"
+path = "examples/hypercore/funding_history.rs"
+
+[[example]]
+name = "vault_details"
+path = "examples/hypercore/vault_details.rs"
+
+[[example]]
 name = "morpho_borrow_apy"
 path = "examples/morpho/borrow_apy.rs"
 
@@ -134,7 +142,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 ## Runtime dependencies
 [dependencies]
-alloy = { version = "1.1", default-features = false, features = ["contract", "eip712", "getrandom", "providers", "reqwest", "reqwest-rustls-tls", "rpc", "rpc-types", "signer-local", "signers", "sol-types"] }
+alloy = { version = "1.1", default-features = false, features = ["contract", "eip712", "getrandom", "providers", "reqwest", "reqwest-rustls-tls", "rpc", "rpc-types", "signer-ledger", "signer-local", "signers", "sol-types"] }
 anyhow = "1"
 const-hex = { version = "1.17", features = ["serde"] }
 derive_more = { version = "2", features = ["display", "is_variant"] }

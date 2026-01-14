@@ -306,6 +306,7 @@ mod tests {
                 cloid: Default::default(),
             }],
             grouping: OrderGrouping::Na,
+            builder: None,
         };
 
         let action = Action::Order(order.clone());

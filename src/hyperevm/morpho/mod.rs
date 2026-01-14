@@ -42,16 +42,17 @@
 //!
 //! ```no_run
 //! use hypersdk::hyperevm::morpho;
-//! use hypersdk::{U256, Address};
+//! use hypersdk::Address;
 //!
 //! # async fn example() -> anyhow::Result<()> {
 //! let client = morpho::MetaClient::mainnet().await?;
 //!
 //! let vault_addr: Address = "0x...".parse()?;
-//! let vault_apy = client.apy::<f64, _>(vault_addr, |e| e.exp()).await?;
+//! let vault_apy = client.apy(vault_addr).await?;
 //!
-//! println!("Vault APY: {:.2}%", vault_apy.apy::<f64, _>(|v| v.to::<u128>() as f64 / 1e18) * 100.0);
-//! println!("Fee: {:.2}%", vault_apy.fee * U256::from(100));
+//! println!("Vault APY: {:.2}%", vault_apy.apy() * 100.0);
+//! println!("Gross APY: {:.2}%", vault_apy.gross_apy() * 100.0);
+//! println!("Fee: {:.2}%", vault_apy.fee * 100.0);
 //! # Ok(())
 //! # }
 //! ```
@@ -155,12 +156,14 @@ where
     ///
     /// ```no_run
     /// use hypersdk::hyperevm::morpho;
+    /// use hypersdk::hyperevm::DynProvider;
     /// use hypersdk::Address;
     ///
     /// # async fn example() -> anyhow::Result<()> {
-    /// let client = morpho::MetaClient::mainnet().await?;
+    /// let provider = DynProvider::new(hypersdk::hyperevm::mainnet().await?);
+    /// let client = morpho::MetaClient::new(provider);
     /// let vault_addr: Address = "0x...".parse()?;
-    /// let vault_apy = client.apy::<f64, _>(vault_addr, |value| value.exp()).await?;
+    /// let vault_apy = client.apy_generic::<f64, _>(vault_addr, |value| value.exp()).await?;
     ///
     /// // Using f64
     /// let apy_f64 = vault_apy.apy(|u| u.to::<u128>() as f64);
@@ -325,18 +328,16 @@ where
     /// # Example
     ///
     /// ```no_run
-    /// use hypersdk::hyperevm::{DynProvider, morpho::{self, MetaClient}};
+    /// use hypersdk::hyperevm::{DynProvider, morpho};
     /// use hypersdk::Address;
     ///
-    /// async fn example(provider: DynProvider, contract: Address) -> anyhow::Result<()> {
-    ///     let vault = MetaClient::new(provider)
-    ///         .apy::<f64, _>(contract, |e| e.exp())
+    /// async fn example(provider: DynProvider, morpho_addr: Address, market_id: morpho::MarketId) -> anyhow::Result<()> {
+    ///     let pool = morpho::Client::new(provider)
+    ///         .apy::<f64, _>(morpho_addr, market_id, |e| e.exp())
     ///         .await?;
     ///
-    ///     println!(
-    ///         "apy: {}%",
-    ///         vault.apy(|v| v.to::<i128>() as f64 / 1e18) * 100.0
-    ///     );
+    ///     println!("Borrow APY: {:.2}%", pool.borrow * 100.0);
+    ///     println!("Supply APY: {:.2}%", pool.supply * 100.0);
     ///
     ///     Ok(())
     /// }
@@ -444,10 +445,12 @@ where
         IMetaMorpho::new(address, self.provider.clone())
     }
 
-    /// Returns the pool's APY.
+    /// Returns the pool's APY with custom numeric types.
+    ///
+    /// For a simpler interface, use `apy()` or `apy_simple()` which return `SimpleVaultApy`.
     ///
     /// <https://github.com/morpho-org/metamorpho-v1.1/blob/main/src/MetaMorphoV1_1.sol#L796>
-    pub async fn apy<T128, F>(&self, address: Address, exp: F) -> anyhow::Result<VaultApy<T128>>
+    pub async fn apy_generic<T128, F>(&self, address: Address, exp: F) -> anyhow::Result<VaultApy<T128>>
     where
         T128: FromPrimitive + NumOps + One + Copy,
         F: FnOnce(T128) -> T128 + Copy,
@@ -515,5 +518,137 @@ where
         }
 
         Ok(apy)
+    }
+
+    /// Returns the pool's APY as a simple f64-based struct.
+    ///
+    /// This is a convenience method that handles all the numeric conversions internally.
+    /// The returned struct provides easy access to APY, fees, and deposits as f64 values.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use hypersdk::hyperevm::morpho;
+    /// use hypersdk::Address;
+    ///
+    /// # async fn example() -> anyhow::Result<()> {
+    /// let client = morpho::MetaClient::mainnet().await?;
+    /// let vault_addr: Address = "0x...".parse()?;
+    ///
+    /// let vault_apy = client.apy_simple(vault_addr).await?;
+    /// println!("APY: {:.2}%", vault_apy.apy() * 100.0);
+    /// println!("Gross APY: {:.2}%", vault_apy.gross_apy() * 100.0);
+    /// println!("Fee: {:.2}%", vault_apy.fee * 100.0);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn apy_simple(&self, address: Address) -> anyhow::Result<SimpleVaultApy> {
+        let vault = self.apy_generic::<f64, _>(address, |x| x.exp()).await?;
+        Ok(SimpleVaultApy::from_vault_apy(vault))
+    }
+}
+
+impl MetaClient<DynProvider> {
+    /// Returns the pool's APY as a simple f64-based struct.
+    ///
+    /// This is a convenience method that handles all the numeric conversions internally.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use hypersdk::hyperevm::morpho;
+    /// use hypersdk::Address;
+    ///
+    /// # async fn example() -> anyhow::Result<()> {
+    /// let client = morpho::MetaClient::mainnet().await?;
+    /// let vault_addr: Address = "0x...".parse()?;
+    ///
+    /// let vault_apy = client.apy(vault_addr).await?;
+    /// println!("APY: {:.2}%", vault_apy.apy() * 100.0);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn apy(&self, address: Address) -> anyhow::Result<SimpleVaultApy> {
+        self.apy_simple(address).await
+    }
+}
+
+/// Simplified vault APY struct with f64 values.
+///
+/// This struct provides a convenient interface for accessing vault APY data
+/// without needing to handle complex numeric types or conversions.
+#[derive(Debug, Clone)]
+pub struct SimpleVaultApy {
+    /// Vault management fee as a decimal (0.05 = 5%).
+    pub fee: f64,
+    /// Total deposits in the vault (in base units).
+    pub total_deposits: f64,
+    /// Number of markets in the vault.
+    pub market_count: usize,
+    /// Gross APY before fees (as a decimal, 0.05 = 5%).
+    gross_apy: f64,
+}
+
+impl SimpleVaultApy {
+    /// Creates a SimpleVaultApy from a VaultApy<f64>.
+    fn from_vault_apy(vault: VaultApy<f64>) -> Self {
+        const WAD: f64 = 1e18;
+
+        let fee = vault.fee.to::<u128>() as f64 / WAD;
+        let total_deposits = vault.total_deposits.to::<u128>() as f64 / WAD;
+
+        // Calculate gross APY (weighted average of all markets)
+        let gross_apy = if vault.total_deposits.is_zero() {
+            0.0
+        } else {
+            vault
+                .components
+                .iter()
+                .map(|c| {
+                    let supplied_shares = c.supplied_shares.to::<u128>() as f64;
+                    let total_supply_assets = c.pool.market.totalSupplyAssets as f64;
+                    let total_supply_shares = c.pool.market.totalSupplyShares as f64;
+
+                    if total_supply_shares == 0.0 {
+                        return 0.0;
+                    }
+
+                    let supplied_assets = supplied_shares * total_supply_assets / total_supply_shares;
+                    let supply_apy = c.supply_apy / WAD;
+                    supplied_assets * supply_apy / (total_deposits * WAD)
+                })
+                .sum()
+        };
+
+        Self {
+            fee,
+            total_deposits,
+            market_count: vault.components.len(),
+            gross_apy,
+        }
+    }
+
+    /// Returns the effective APY after fees.
+    ///
+    /// This is the net yield a depositor would receive, accounting for the
+    /// vault's management fee.
+    #[must_use]
+    pub fn apy(&self) -> f64 {
+        self.gross_apy * (1.0 - self.fee)
+    }
+
+    /// Returns the gross APY before fees.
+    ///
+    /// This is the raw yield generated by the underlying markets before
+    /// the vault's management fee is applied.
+    #[must_use]
+    pub fn gross_apy(&self) -> f64 {
+        self.gross_apy
+    }
+
+    /// Returns the number of markets in the vault.
+    #[must_use]
+    pub fn market_count(&self) -> usize {
+        self.market_count
     }
 }

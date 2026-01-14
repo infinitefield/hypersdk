@@ -1509,6 +1509,7 @@ impl OrderResponseStatus {
 ///         }
 ///     ],
 ///     grouping: OrderGrouping::Na,
+///     builder: None,
 /// };
 /// ```
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -1516,6 +1517,9 @@ impl OrderResponseStatus {
 pub struct BatchOrder {
     pub orders: Vec<OrderRequest>,
     pub grouping: OrderGrouping,
+    /// Optional builder/affiliate address for referral tracking.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder: Option<crate::Address>,
 }
 
 /// Order grouping strategy.
@@ -1979,6 +1983,518 @@ pub(super) enum InfoRequest {
     ExtraAgents {
         user: Address,
     },
+    ClearinghouseState {
+        user: Address,
+    },
+    SubAccounts {
+        user: Address,
+    },
+    VaultSummaries,
+    VaultDetails {
+        #[serde(rename = "vaultAddress")]
+        vault_address: Address,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        user: Option<Address>,
+    },
+    FundingHistory {
+        coin: String,
+        #[serde(rename = "startTime")]
+        start_time: u64,
+        #[serde(rename = "endTime", skip_serializing_if = "Option::is_none")]
+        end_time: Option<u64>,
+    },
+}
+
+// ========================================================
+// CLEARINGHOUSE STATE TYPES
+// ========================================================
+
+/// Margin summary for a user's account.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarginSummary {
+    /// Total account value in USD.
+    pub account_value: Decimal,
+    /// Total notional position value.
+    pub total_ntl_pos: Decimal,
+    /// Total raw USD value.
+    pub total_raw_usd: Decimal,
+    /// Total margin used.
+    pub total_margin_used: Decimal,
+}
+
+/// Asset position in perpetuals.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetPosition {
+    /// Position details.
+    pub position: PositionData,
+    /// Position type.
+    #[serde(rename = "type")]
+    pub position_type: String,
+}
+
+/// Position data for an asset.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PositionData {
+    /// Market symbol (e.g., "BTC", "ETH").
+    pub coin: String,
+    /// Position size (positive for long, negative for short).
+    pub szi: Decimal,
+    /// Entry price.
+    pub entry_px: Option<Decimal>,
+    /// Position value.
+    pub position_value: Decimal,
+    /// Unrealized PnL.
+    pub unrealized_pnl: Decimal,
+    /// Return on equity.
+    pub return_on_equity: Decimal,
+    /// Liquidation price.
+    pub liquidation_px: Option<Decimal>,
+    /// Margin used for this position.
+    pub margin_used: Decimal,
+    /// Max leverage allowed.
+    pub max_leverage: u32,
+    /// Current leverage.
+    pub leverage: Option<LeverageInfo>,
+    /// Cumulative funding.
+    pub cumulative_funding: CumulativeFunding,
+}
+
+/// Leverage information for a position.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LeverageInfo {
+    /// Leverage type (cross or isolated).
+    #[serde(rename = "type")]
+    pub leverage_type: String,
+    /// Leverage value.
+    pub value: u32,
+    /// Raw USD value (for isolated margin).
+    pub raw_usd: Option<Decimal>,
+}
+
+/// Cumulative funding for a position.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CumulativeFunding {
+    /// All-time cumulative funding.
+    pub all_time: Decimal,
+    /// Since the position was opened.
+    pub since_open: Decimal,
+    /// Since last position change.
+    pub since_change: Decimal,
+}
+
+/// Full clearinghouse state for a user's perpetuals account.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearinghouseState {
+    /// Margin summary for the account.
+    pub margin_summary: MarginSummary,
+    /// Cross margin summary.
+    pub cross_margin_summary: MarginSummary,
+    /// Cross maintenance margin used.
+    pub cross_maintenance_margin_used: Decimal,
+    /// Withdrawable amount.
+    pub withdrawable: Decimal,
+    /// Asset positions (perpetuals).
+    pub asset_positions: Vec<AssetPosition>,
+    /// Timestamp in milliseconds.
+    pub time: u64,
+}
+
+impl ClearinghouseState {
+    /// Returns the total account value.
+    #[must_use]
+    pub fn account_value(&self) -> Decimal {
+        self.margin_summary.account_value
+    }
+
+    /// Returns the withdrawable amount.
+    #[must_use]
+    pub fn withdrawable_amount(&self) -> Decimal {
+        self.withdrawable
+    }
+
+    /// Returns the total margin used.
+    #[must_use]
+    pub fn margin_used(&self) -> Decimal {
+        self.margin_summary.total_margin_used
+    }
+
+    /// Returns the total notional position value.
+    #[must_use]
+    pub fn total_notional(&self) -> Decimal {
+        self.margin_summary.total_ntl_pos
+    }
+
+    /// Returns the number of open positions.
+    #[must_use]
+    pub fn position_count(&self) -> usize {
+        self.asset_positions.len()
+    }
+}
+
+// ========================================================
+// SUB-ACCOUNT TYPES
+// ========================================================
+
+/// Spot state for a sub-account.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpotState {
+    /// Spot token balances.
+    pub balances: Vec<UserBalance>,
+}
+
+/// Sub-account information.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubAccount {
+    /// Name of the sub-account.
+    pub name: String,
+    /// Address of the sub-account.
+    pub sub_account_user: Address,
+    /// Master account address.
+    pub master: Address,
+    /// Clearinghouse state for perpetuals.
+    pub clearinghouse_state: ClearinghouseState,
+    /// Spot trading state.
+    #[serde(default)]
+    pub spot_state: Option<SpotState>,
+}
+
+impl SubAccount {
+    /// Returns the perpetuals account value.
+    #[must_use]
+    pub fn perp_account_value(&self) -> Decimal {
+        self.clearinghouse_state.account_value()
+    }
+
+    /// Returns the withdrawable amount.
+    #[must_use]
+    pub fn withdrawable(&self) -> Decimal {
+        self.clearinghouse_state.withdrawable_amount()
+    }
+
+    /// Returns the total notional position value.
+    #[must_use]
+    pub fn total_notional(&self) -> Decimal {
+        self.clearinghouse_state.total_notional()
+    }
+
+    /// Returns the number of open positions.
+    #[must_use]
+    pub fn position_count(&self) -> usize {
+        self.clearinghouse_state.position_count()
+    }
+}
+
+// ========================================================
+// VAULT TYPES
+// ========================================================
+
+/// Vault relationship type.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(tag = "type", content = "data")]
+pub enum VaultRelationship {
+    /// Normal vault (standalone).
+    Normal,
+    /// Parent vault with child vaults.
+    Parent {
+        #[serde(rename = "childAddresses")]
+        child_addresses: Vec<Address>,
+    },
+    /// Child vault of a parent.
+    Child {
+        #[serde(rename = "parentAddress")]
+        parent_address: Address,
+    },
+}
+
+/// Vault summary information.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultSummary {
+    /// Vault name.
+    pub name: String,
+    /// Vault address.
+    pub vault_address: Address,
+    /// Vault leader (manager) address.
+    pub leader: Address,
+    /// Total value locked (as string for precision).
+    pub tvl: Decimal,
+    /// Whether the vault is closed for deposits.
+    pub is_closed: bool,
+    /// Vault relationship (parent/child/normal).
+    #[serde(default)]
+    pub relationship: Option<VaultRelationship>,
+    /// Creation timestamp in milliseconds.
+    #[serde(default)]
+    pub create_time_millis: Option<u64>,
+}
+
+impl VaultSummary {
+    /// Returns the TVL as a Decimal.
+    #[must_use]
+    pub fn tvl_decimal(&self) -> Decimal {
+        self.tvl
+    }
+
+    /// Returns whether this is a parent vault.
+    #[must_use]
+    pub fn is_parent(&self) -> bool {
+        matches!(self.relationship, Some(VaultRelationship::Parent { .. }))
+    }
+
+    /// Returns whether this is a child vault.
+    #[must_use]
+    pub fn is_child(&self) -> bool {
+        matches!(self.relationship, Some(VaultRelationship::Child { .. }))
+    }
+}
+
+/// Vault follower information.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultFollower {
+    /// Follower's address.
+    pub user: Address,
+    /// Follower's equity in the vault.
+    pub vault_equity: Decimal,
+    /// Follower's PnL.
+    pub pnl: Decimal,
+    /// All-time PnL.
+    pub all_time_pnl: Decimal,
+    /// Days following the vault.
+    pub days_following: u32,
+    /// Entry time into the vault (timestamp).
+    pub vault_entry_time: u64,
+    /// Lockup end time (if any).
+    #[serde(default)]
+    pub lockup_until: Option<u64>,
+}
+
+impl VaultFollower {
+    /// Returns the equity as Decimal.
+    #[must_use]
+    pub fn equity_decimal(&self) -> Decimal {
+        self.vault_equity
+    }
+
+    /// Returns the PnL as Decimal.
+    #[must_use]
+    pub fn pnl_decimal(&self) -> Decimal {
+        self.pnl
+    }
+}
+
+/// Portfolio metrics for time periods.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultPortfolio {
+    /// Account value history.
+    #[serde(default)]
+    pub account_value_history: Vec<(u64, Decimal)>,
+    /// PnL history.
+    #[serde(default)]
+    pub pnl_history: Vec<(u64, Decimal)>,
+    /// Volume metrics by period.
+    #[serde(default)]
+    pub vlm: Option<VolumeMetrics>,
+}
+
+/// Volume metrics by time period.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VolumeMetrics {
+    /// Daily volume.
+    #[serde(default)]
+    pub day: Option<Decimal>,
+    /// Weekly volume.
+    #[serde(default)]
+    pub week: Option<Decimal>,
+    /// Monthly volume.
+    #[serde(default)]
+    pub month: Option<Decimal>,
+    /// All-time volume.
+    #[serde(default)]
+    pub all_time: Option<Decimal>,
+}
+
+/// Detailed vault information.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultDetails {
+    /// Vault name.
+    pub name: String,
+    /// Vault address.
+    pub vault_address: Address,
+    /// Vault leader (manager) address.
+    pub leader: Address,
+    /// Vault description.
+    #[serde(default)]
+    pub description: String,
+    /// Annual percentage rate (raw value).
+    #[serde(default)]
+    pub apr: f64,
+    /// Leader's fraction (ownership).
+    #[serde(default)]
+    pub leader_fraction: f64,
+    /// Leader's commission rate.
+    #[serde(default)]
+    pub leader_commission: f64,
+    /// Whether the vault is closed.
+    pub is_closed: bool,
+    /// List of followers.
+    #[serde(default)]
+    pub followers: Vec<VaultFollower>,
+    /// Max distributable amount.
+    #[serde(default)]
+    pub max_distributable: Decimal,
+    /// Max withdrawable amount.
+    #[serde(default)]
+    pub max_withdrawable: Decimal,
+    /// Portfolio data.
+    #[serde(default)]
+    pub portfolio: Option<VaultPortfolio>,
+    /// Whether deposits are allowed.
+    #[serde(default)]
+    pub allow_deposits: Option<bool>,
+}
+
+impl VaultDetails {
+    /// Returns the APR as a percentage.
+    #[must_use]
+    pub fn apr_percent(&self) -> f64 {
+        self.apr * 100.0
+    }
+
+    /// Returns the commission as a percentage.
+    #[must_use]
+    pub fn commission_percent(&self) -> f64 {
+        self.leader_commission * 100.0
+    }
+
+    /// Returns the number of followers.
+    #[must_use]
+    pub fn follower_count(&self) -> usize {
+        self.followers.len()
+    }
+
+    /// Returns total follower equity.
+    #[must_use]
+    pub fn total_follower_equity(&self) -> Decimal {
+        self.followers.iter().map(|f| f.vault_equity).sum()
+    }
+
+    /// Returns max withdrawable as Decimal.
+    #[must_use]
+    pub fn max_withdrawable_decimal(&self) -> Decimal {
+        self.max_withdrawable
+    }
+
+    /// Returns whether the vault accepts deposits.
+    #[must_use]
+    pub fn accepts_deposits(&self) -> bool {
+        self.allow_deposits.unwrap_or(!self.is_closed)
+    }
+}
+
+// ========================================================
+// FUNDING HISTORY TYPES
+// ========================================================
+
+/// Funding rate entry from history.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FundingRateEntry {
+    /// Market symbol.
+    pub coin: String,
+    /// Funding rate (raw decimal, e.g., 0.0001 = 0.01%).
+    pub funding_rate: Decimal,
+    /// Market premium.
+    pub premium: Decimal,
+    /// Timestamp in milliseconds.
+    pub time: u64,
+}
+
+impl FundingRateEntry {
+    /// Returns the funding rate as a percentage.
+    #[must_use]
+    pub fn funding_pct(&self) -> Decimal {
+        self.funding_rate * Decimal::ONE_HUNDRED
+    }
+
+    /// Returns the annualized funding rate (assuming 8-hour periods).
+    #[must_use]
+    pub fn annualized_pct(&self) -> Decimal {
+        self.funding_pct() * Decimal::from(1095)
+    }
+}
+
+// ========================================================
+// ASSET CONTEXT TYPES (for meta endpoint)
+// ========================================================
+
+/// Asset context from meta endpoint.
+///
+/// Contains market statistics and funding information for a perpetual market.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetCtx {
+    /// Current funding rate.
+    pub funding: Decimal,
+    /// Open interest in USD.
+    pub open_interest: Decimal,
+    /// Previous day's price.
+    #[serde(default)]
+    pub prev_day_px: Option<Decimal>,
+    /// 24-hour volume.
+    pub day_ntl_vlm: Decimal,
+    /// Premium (market price vs oracle).
+    #[serde(default)]
+    pub premium: Option<Decimal>,
+    /// Oracle price.
+    #[serde(default)]
+    pub oracle_px: Option<Decimal>,
+    /// Mark price.
+    #[serde(default)]
+    pub mark_px: Option<Decimal>,
+    /// Mid price.
+    #[serde(default)]
+    pub mid_px: Option<Decimal>,
+    /// Impact prices for slippage estimation.
+    #[serde(default)]
+    pub impact_pxs: Option<Vec<Decimal>>,
+}
+
+impl AssetCtx {
+    /// Returns the funding rate as a percentage.
+    #[must_use]
+    pub fn funding_pct(&self) -> Decimal {
+        self.funding * Decimal::ONE_HUNDRED
+    }
+
+    /// Returns the 24h price change percentage.
+    #[must_use]
+    pub fn price_change_pct(&self) -> Option<Decimal> {
+        let prev = self.prev_day_px?;
+        let current = self.mark_px.or(self.mid_px)?;
+        if prev.is_zero() {
+            return None;
+        }
+        Some((current - prev) / prev * Decimal::ONE_HUNDRED)
+    }
+
+    /// Returns the annualized funding rate.
+    #[must_use]
+    pub fn annualized_funding(&self) -> Decimal {
+        self.funding * Decimal::from(1095) * Decimal::ONE_HUNDRED
+    }
 }
 
 #[cfg(test)]

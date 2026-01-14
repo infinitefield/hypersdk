@@ -75,11 +75,16 @@ async fn main() -> anyhow::Result<()> {
     println!("Connecting to RPC endpoint: {}", args.rpc_url);
 
     let provider = DynProvider::new(hyperevm::mainnet_with_url(&args.rpc_url).await?);
-    let vault = MetaClient::new(provider)
-        .apy::<f64, _>(args.contract_address, |e| e.exp())
-        .await?;
+    let client = MetaClient::new(provider);
 
-    println!("apy: {}%", vault.apy(|v| v.to::<i128>() as f64) * 100.0);
+    // Use the simplified apy method that returns SimpleVaultApy
+    let vault = client.apy_simple(args.contract_address).await?;
+
+    println!("APY: {:.2}%", vault.apy() * 100.0);
+    println!("Gross APY: {:.2}%", vault.gross_apy() * 100.0);
+    println!("Fee: {:.2}%", vault.fee * 100.0);
+    println!("Total Deposits: {:.2}", vault.total_deposits);
+    println!("Markets: {}", vault.market_count());
 
     Ok(())
 }
