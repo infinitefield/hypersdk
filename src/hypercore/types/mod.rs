@@ -2055,11 +2055,13 @@ pub struct PositionData {
     /// Margin used for this position.
     pub margin_used: Decimal,
     /// Max leverage allowed.
+    #[serde(default)]
     pub max_leverage: u32,
     /// Current leverage.
     pub leverage: Option<LeverageInfo>,
-    /// Cumulative funding.
-    pub cumulative_funding: CumulativeFunding,
+    /// Cumulative funding (optional - may not be returned by API).
+    #[serde(default)]
+    pub cumulative_funding: Option<CumulativeFunding>,
 }
 
 /// Leverage information for a position.
