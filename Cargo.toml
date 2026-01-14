@@ -96,6 +96,22 @@ name = "websocket"
 path = "examples/hypercore/websocket.rs"
 
 [[example]]
+name = "vault_details"
+path = "examples/hypercore/vault_details.rs"
+
+[[example]]
+name = "user_vault_equities"
+path = "examples/hypercore/user_vault_equities.rs"
+
+[[example]]
+name = "user_role"
+path = "examples/hypercore/user_role.rs"
+
+[[example]]
+name = "subaccounts"
+path = "examples/hypercore/subaccounts.rs"
+
+[[example]]
 name = "morpho_borrow_apy"
 path = "examples/morpho/borrow_apy.rs"
 

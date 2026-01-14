@@ -1673,10 +1673,6 @@ pub struct ScheduleCancel {
     pub time: Option<u64>,
 }
 
-// ========================================================
-// CLEARINGHOUSE STATE TYPES
-// ========================================================
-
 /// Clearinghouse state for a user's perpetual positions.
 ///
 /// # Example
@@ -1889,11 +1885,6 @@ pub struct CumulativeFunding {
     pub since_change: Decimal,
 }
 
-// ========================================================
-// ========================================================
-// FUNDING RATE TYPES
-// ========================================================
-
 /// Historical funding rate record.
 ///
 /// Represents a single funding rate snapshot for a perpetual market.
@@ -1959,10 +1950,6 @@ impl FundingRate {
         self.funding_rate < Decimal::ZERO
     }
 }
-
-// ========================================================
-// USER BALANCE TYPES
-// ========================================================
 
 /// User balance.
 ///
@@ -2105,6 +2092,290 @@ pub struct ApiAgent {
     pub address: Address,
     /// Timestamp in milliseconds until which this agent is valid
     pub valid_until: Option<u64>,
+}
+
+/// Role of a user in the Hyperliquid system.
+///
+/// Returned by the `userRole` info endpoint to identify what type of account
+/// a given address represents.
+///
+/// # Example
+///
+/// ```no_run
+/// use hypersdk::hypercore;
+/// use hypersdk::Address;
+///
+/// # async fn example() -> anyhow::Result<()> {
+/// let client = hypercore::mainnet();
+/// let addr: Address = "0x...".parse()?;
+/// let role = client.user_role(addr).await?;
+///
+/// match role.role {
+///     hypersdk::hypercore::types::UserRoleType::User => println!("Regular user"),
+///     hypersdk::hypercore::types::UserRoleType::Vault => println!("Vault account"),
+///     hypersdk::hypercore::types::UserRoleType::Agent => println!("Agent wallet"),
+///     _ => {}
+/// }
+/// # Ok(())
+/// # }
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserRole {
+    /// The role type
+    pub role: UserRoleType,
+}
+
+/// Type of role for a user in the Hyperliquid system.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, derive_more::Display)]
+#[serde(rename_all = "camelCase")]
+pub enum UserRoleType {
+    /// Regular user account
+    User,
+    /// Agent wallet authorized to act on behalf of another account
+    Agent,
+    /// Vault account
+    Vault,
+    /// Subaccount
+    SubAccount,
+    /// Address not found in the system
+    Missing,
+}
+
+/// User's equity in a vault.
+///
+/// Represents a user's deposit and equity position in a specific vault.
+///
+/// # Example
+///
+/// ```no_run
+/// use hypersdk::hypercore;
+/// use hypersdk::Address;
+///
+/// # async fn example() -> anyhow::Result<()> {
+/// let client = hypercore::mainnet();
+/// let user: Address = "0x...".parse()?;
+/// let equities = client.user_vault_equities(user).await?;
+///
+/// for equity in equities {
+///     println!("Vault {:?}: equity = {}", equity.vault_address, equity.equity);
+/// }
+/// # Ok(())
+/// # }
+/// ```
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserVaultEquity {
+    /// The vault address
+    pub vault_address: Address,
+    /// User's equity in the vault
+    pub equity: Decimal,
+    /// Timestamp until which funds are locked
+    pub locked_until_timestamp: Option<u64>,
+}
+
+/// Vault details response.
+///
+/// Contains comprehensive information about a vault including performance metrics,
+/// follower information, and configuration.
+///
+/// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#retrieve-details-for-a-vault>
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultDetails {
+    /// Name of the vault
+    pub name: String,
+    /// Address of the vault
+    pub vault_address: Address,
+    /// Leader (manager) of the vault
+    pub leader: Address,
+    /// Description of the vault
+    pub description: String,
+    /// Portfolio performance data for different time periods
+    pub portfolio: Vec<(String, VaultPortfolio)>,
+    /// Annual percentage return
+    pub apr: Decimal,
+    /// State of the current user as a follower (if queried with user parameter)
+    pub follower_state: Option<VaultFollowerState>,
+    /// Leader's fraction of the vault
+    pub leader_fraction: Decimal,
+    /// Leader's commission rate
+    pub leader_commission: Decimal,
+    /// List of vault followers
+    pub followers: Vec<VaultFollower>,
+    /// Maximum amount that can be distributed
+    pub max_distributable: Decimal,
+    /// Maximum amount that can be withdrawn
+    pub max_withdrawable: Decimal,
+    /// Whether the vault is closed
+    #[serde(default)]
+    pub is_closed: bool,
+    /// Relationship type
+    #[serde(default)]
+    pub relationship: Option<VaultRelationship>,
+    /// Whether the vault allows deposits
+    #[serde(default)]
+    pub allow_deposits: bool,
+    /// Whether to always close on withdraw
+    #[serde(default)]
+    pub always_close_on_withdraw: bool,
+}
+
+/// Vault relationship type.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultRelationship {
+    /// Type of relationship
+    #[serde(rename = "type")]
+    pub relationship_type: VaultRelationshipType,
+}
+
+/// Type of vault relationship.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, derive_more::Display)]
+#[serde(rename_all = "lowercase")]
+pub enum VaultRelationshipType {
+    /// Normal vault relationship
+    Normal,
+}
+
+/// Vault portfolio data for a specific time period.
+///
+/// Contains historical account value and PnL data.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultPortfolio {
+    /// Historical account values as (timestamp_ms, value) pairs
+    pub account_value_history: Vec<(u64, String)>,
+    /// Historical PnL values as (timestamp_ms, value) pairs
+    pub pnl_history: Vec<(u64, String)>,
+    /// Volume for the period
+    pub vlm: String,
+}
+
+/// State of a user as a vault follower.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultFollowerState {
+    /// User's equity in the vault
+    pub vault_equity: Decimal,
+    /// User's PnL
+    pub pnl: Decimal,
+    /// User's all-time PnL
+    pub all_time_pnl: Decimal,
+    /// Number of days following
+    pub days_following: u64,
+    /// Timestamp when user entered the vault
+    pub vault_entry_time: u64,
+    /// Timestamp until which funds are locked (if any)
+    pub lockup_until: Option<u64>,
+}
+
+/// Information about a vault follower.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultFollower {
+    /// Follower's identity (address or special role like Leader)
+    pub user: VaultFollowerUser,
+    /// Follower's equity in the vault
+    pub vault_equity: Decimal,
+    /// Follower's PnL
+    pub pnl: Decimal,
+    /// Follower's all-time PnL
+    pub all_time_pnl: Decimal,
+    /// Number of days following
+    pub days_following: u64,
+    /// Timestamp when user entered the vault
+    pub vault_entry_time: u64,
+    /// Timestamp until which funds are locked (if any)
+    pub lockup_until: Option<u64>,
+}
+
+/// Identity of a vault follower.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VaultFollowerUser {
+    /// The vault leader
+    Leader,
+    /// A regular follower address
+    Address(Address),
+}
+
+impl fmt::Display for VaultFollowerUser {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            VaultFollowerUser::Leader => write!(f, "Leader"),
+            VaultFollowerUser::Address(addr) => write!(f, "{:?}", addr),
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for VaultFollowerUser {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s: String = serde::Deserialize::deserialize(deserializer)?;
+        if s == "Leader" {
+            Ok(VaultFollowerUser::Leader)
+        } else {
+            s.parse::<Address>()
+                .map(VaultFollowerUser::Address)
+                .map_err(serde::de::Error::custom)
+        }
+    }
+}
+
+// ========================================================
+// SUBACCOUNT TYPES
+// ========================================================
+
+/// A user's subaccount with state information.
+///
+/// Represents a subaccount associated with a master account, including its
+/// clearinghouse state (perpetuals) and spot balances.
+///
+/// # Example
+///
+/// ```no_run
+/// use hypersdk::hypercore;
+/// use hypersdk::Address;
+///
+/// # async fn example() -> anyhow::Result<()> {
+/// let client = hypercore::mainnet();
+/// let master: Address = "0x...".parse()?;
+///
+/// let subaccounts = client.subaccounts(master).await?;
+/// for sub in subaccounts {
+///     println!("Subaccount '{}': {:?}", sub.name, sub.sub_account_user);
+///     println!("  Account value: {}", sub.clearinghouse_state.margin_summary.account_value);
+/// }
+/// # Ok(())
+/// # }
+/// ```
+///
+/// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#retrieve-a-users-subaccounts>
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubAccount {
+    /// Human-readable name of the subaccount
+    pub name: String,
+    /// Address of the subaccount
+    pub sub_account_user: Address,
+    /// Address of the master account
+    pub master: Address,
+    /// Clearinghouse state for perpetuals trading
+    pub clearinghouse_state: ClearinghouseState,
+    /// Spot trading state
+    pub spot_state: SpotState,
+}
+
+/// Spot trading state for an account.
+///
+/// Contains the spot balances for an account.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpotState {
+    /// List of spot balances
+    pub balances: Vec<UserBalance>,
 }
 
 /// Signature.
@@ -2279,6 +2550,25 @@ pub(super) enum InfoRequest {
         start_time: u64,
         #[serde(rename = "endTime", skip_serializing_if = "Option::is_none")]
         end_time: Option<u64>,
+    },
+    /// Retrieve details for a vault.
+    VaultDetails {
+        #[serde(rename = "vaultAddress")]
+        vault_address: Address,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        user: Option<Address>,
+    },
+    /// Retrieve a user's vault deposits.
+    UserVaultEquities {
+        user: Address,
+    },
+    /// Query a user's role.
+    UserRole {
+        user: Address,
+    },
+    /// Retrieve a user's subaccounts.
+    SubAccounts {
+        user: Address,
     },
 }
 

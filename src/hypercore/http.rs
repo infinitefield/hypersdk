@@ -66,7 +66,8 @@ use crate::hypercore::{
     types::{
         BasicOrder, BatchCancel, BatchCancelCloid, BatchModify, BatchOrder, ClearinghouseState,
         Fill, FundingRate, InfoRequest, OrderResponseStatus, OrderUpdate, ScheduleCancel,
-        SendAsset, SendToken, SpotSend, UsdSend, UserBalance,
+        SendAsset, SendToken, SpotSend, SubAccount, UsdSend, UserBalance, UserRole,
+        UserVaultEquity, VaultDetails,
     },
 };
 
@@ -752,6 +753,209 @@ impl Client {
             .http_client
             .post(api_url)
             .json(&InfoRequest::ExtraAgents { user })
+            .send()
+            .await?
+            .json()
+            .await?;
+        Ok(resp)
+    }
+
+    /// Retrieve details for a vault.
+    ///
+    /// Returns comprehensive information about a vault including performance metrics,
+    /// follower information, and configuration.
+    ///
+    /// # Parameters
+    ///
+    /// - `vault_address`: The address of the vault to query
+    /// - `user`: Optional user address to include follower state for that user
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use hypersdk::hypercore;
+    /// use hypersdk::Address;
+    ///
+    /// # async fn example() -> anyhow::Result<()> {
+    /// let client = hypercore::mainnet();
+    /// let vault: Address = "0xdfc24b077bc1425ad1dea75bcb6f8158e10df303".parse()?;
+    ///
+    /// // Get vault details without user-specific follower state
+    /// let details = client.vault_details(vault, None).await?;
+    /// println!("Vault: {} (APR: {}%)", details.name, details.apr);
+    ///
+    /// // Get vault details with user-specific follower state
+    /// let user: Address = "0x...".parse()?;
+    /// let details_with_state = client.vault_details(vault, Some(user)).await?;
+    /// if let Some(state) = details_with_state.follower_state {
+    ///     println!("Your equity: {}", state.vault_equity);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#retrieve-details-for-a-vault>
+    pub async fn vault_details(
+        &self,
+        vault_address: Address,
+        user: Option<Address>,
+    ) -> Result<VaultDetails> {
+        let mut api_url = self.base_url.clone();
+        api_url.set_path("/info");
+
+        let resp = self
+            .http_client
+            .post(api_url)
+            .json(&InfoRequest::VaultDetails {
+                vault_address,
+                user,
+            })
+            .send()
+            .await?
+            .json()
+            .await?;
+        Ok(resp)
+    }
+
+    /// Retrieve a user's vault deposits.
+    ///
+    /// Returns all vaults that a user has deposited into, along with their
+    /// current equity in each vault.
+    ///
+    /// # Parameters
+    ///
+    /// - `user`: The address of the user to query vault deposits for
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use hypersdk::hypercore;
+    /// use hypersdk::Address;
+    ///
+    /// # async fn example() -> anyhow::Result<()> {
+    /// let client = hypercore::mainnet();
+    /// let user: Address = "0x...".parse()?;
+    ///
+    /// let equities = client.user_vault_equities(user).await?;
+    /// for equity in equities {
+    ///     println!("Vault {:?}: equity = {}", equity.vault_address, equity.equity);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#retrieve-a-users-vault-deposits>
+    pub async fn user_vault_equities(&self, user: Address) -> Result<Vec<UserVaultEquity>> {
+        let mut api_url = self.base_url.clone();
+        api_url.set_path("/info");
+
+        let resp = self
+            .http_client
+            .post(api_url)
+            .json(&InfoRequest::UserVaultEquities { user })
+            .send()
+            .await?
+            .json()
+            .await?;
+        Ok(resp)
+    }
+
+    /// Query a user's role.
+    ///
+    /// Returns the role of an address in the Hyperliquid system. This can be used
+    /// to determine if an address is a regular user, vault, agent, or subaccount.
+    ///
+    /// # Parameters
+    ///
+    /// - `user`: The address to query the role for
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use hypersdk::hypercore;
+    /// use hypersdk::Address;
+    ///
+    /// # async fn example() -> anyhow::Result<()> {
+    /// let client = hypercore::mainnet();
+    /// let addr: Address = "0x...".parse()?;
+    ///
+    /// let response = client.user_role(addr).await?;
+    /// match response.role {
+    ///     hypersdk::hypercore::types::UserRoleType::User => println!("Regular user"),
+    ///     hypersdk::hypercore::types::UserRoleType::Vault => println!("Vault account"),
+    ///     hypersdk::hypercore::types::UserRoleType::Agent => println!("Agent wallet"),
+    ///     hypersdk::hypercore::types::UserRoleType::SubAccount => println!("Subaccount"),
+    ///     hypersdk::hypercore::types::UserRoleType::Missing => println!("Not found"),
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#query-a-users-role>
+    pub async fn user_role(&self, user: Address) -> Result<UserRole> {
+        let mut api_url = self.base_url.clone();
+        api_url.set_path("/info");
+
+        let resp = self
+            .http_client
+            .post(api_url)
+            .json(&InfoRequest::UserRole { user })
+            .send()
+            .await?
+            .json()
+            .await?;
+        Ok(resp)
+    }
+
+    /// Retrieve a user's subaccounts.
+    ///
+    /// Returns all subaccounts associated with a master account, including their
+    /// clearinghouse state (perpetuals) and spot balances.
+    ///
+    /// # Parameters
+    ///
+    /// - `user`: The address of the master account
+    ///
+    /// # Notes
+    ///
+    /// Subaccounts do not have private keys. To perform actions on behalf of a
+    /// subaccount, signing should be done by the master account with the
+    /// `vault_address` parameter set to the subaccount's address.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use hypersdk::hypercore;
+    /// use hypersdk::Address;
+    ///
+    /// # async fn example() -> anyhow::Result<()> {
+    /// let client = hypercore::mainnet();
+    /// let master: Address = "0x...".parse()?;
+    ///
+    /// let subaccounts = client.subaccounts(master).await?;
+    /// for sub in subaccounts {
+    ///     println!("Subaccount '{}': {:?}", sub.name, sub.sub_account_user);
+    ///     println!("  Account value: {}", sub.clearinghouse_state.margin_summary.account_value);
+    ///     println!("  Withdrawable: {}", sub.clearinghouse_state.withdrawable);
+    ///
+    ///     // Check spot balances
+    ///     for balance in &sub.spot_state.balances {
+    ///         println!("  {}: {}", balance.coin, balance.total);
+    ///     }
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#retrieve-a-users-subaccounts>
+    pub async fn subaccounts(&self, user: Address) -> Result<Vec<SubAccount>> {
+        let mut api_url = self.base_url.clone();
+        api_url.set_path("/info");
+
+        let resp = self
+            .http_client
+            .post(api_url)
+            .json(&InfoRequest::SubAccounts { user })
             .send()
             .await?
             .json()
