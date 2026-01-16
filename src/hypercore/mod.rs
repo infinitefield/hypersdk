@@ -843,7 +843,7 @@ impl PerpMarket {
 /// ```
 #[derive(Debug, Clone)]
 pub struct SpotMarket {
-    /// Market name (e.g., "PURR/USDC", "BTC/USDC")
+    /// Market name (e.g., "PURR/USDC", "@123")
     pub name: String,
     /// Market index used in API calls (10_000 + spot index)
     pub index: usize,

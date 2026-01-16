@@ -904,12 +904,9 @@ impl Client {
             .json(&InfoRequest::UserRole { user })
             .send()
             .await?
-            .text()
+            .json()
             .await?;
-
-        println!("{resp}");
-
-        Ok(serde_json::from_str(&resp)?)
+        Ok(resp)
     }
 
     /// Retrieve a user's subaccounts.
