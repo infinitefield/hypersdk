@@ -166,6 +166,12 @@ impl Stream {
         self.stream.send_json(&Outgoing::Ping).await?;
         Ok(())
     }
+
+    /// Send a pong
+    async fn pong(&mut self) -> anyhow::Result<()> {
+        self.stream.send_json(&Outgoing::Pong).await?;
+        Ok(())
+    }
 }
 
 impl futures::Stream for Stream {
@@ -356,6 +362,7 @@ async fn connection(
     tx: UnboundedSender<Event>,
     mut srx: UnboundedReceiver<SubChannelData>,
 ) {
+    const MAX_MISSED_PONGS: u8 = 2;
     const MAX_RECONNECT_DELAY_MS: u64 = 5_000; // 5 seconds max
     const INITIAL_RECONNECT_DELAY_MS: u64 = 500;
 
@@ -418,15 +425,34 @@ async fn connection(
             }
         }
 
-        let mut ping = interval(Duration::from_secs(5));
+        let mut ping_interval = interval(Duration::from_secs(5));
+        let mut missed_pongs: u8 = 0;
+
         loop {
             tokio::select! {
-                _ = ping.tick() => {
-                    let _ = stream.ping().await;
+                _ = ping_interval.tick() => {
+                    if missed_pongs >= MAX_MISSED_PONGS {
+                        log::warn!("Missed {missed_pongs} pongs, reconnecting...");
+                        break;
+                    }
+
+                    if stream.ping().await.is_ok() {
+                        missed_pongs += 1;
+                    }
                 }
                 maybe_item = stream.next() => {
                     let Some(item) = maybe_item else { break; };
-                    let _ = tx.send(Event::Message(item));
+                    match item {
+                        Incoming::Pong => {
+                            missed_pongs = 0;
+                        }
+                        Incoming::Ping => {
+                            let _ = stream.pong().await;
+                        }
+                        _ => {
+                            let _ = tx.send(Event::Message(item));
+                        }
+                    }
                 }
                 item = srx.recv() => {
                     let Some((is_sub, sub)) = item else { return };
@@ -441,7 +467,6 @@ async fn connection(
                             break;
                         }
                     } else if subs.remove(&sub) {
-                        // ...
                         if let Err(err) = stream.unsubscribe(sub).await {
                             log::error!("Unsubscribing: {err:?}");
                             break;
