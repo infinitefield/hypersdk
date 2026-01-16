@@ -233,19 +233,14 @@ impl NonceHandler {
     /// println!("Transaction nonce: {}", nonce);
     /// ```
     pub fn next(&self) -> u64 {
-        let current = Utc::now().timestamp_millis() as u64;
-        let nonce = self.nonce.fetch_add(1, atomic::Ordering::Relaxed);
-        if nonce + 300 < current {
-            let _ = self.nonce.compare_exchange(
-                nonce + 1,
-                current,
-                atomic::Ordering::AcqRel,
-                atomic::Ordering::Relaxed,
-            );
-            current
-        } else {
-            nonce
+        let now = Utc::now().timestamp_millis() as u64;
+
+        let prev = self.nonce.load(atomic::Ordering::Relaxed);
+        if prev + 300 < now {
+            self.nonce.fetch_max(now, atomic::Ordering::Relaxed);
         }
+
+        self.nonce.fetch_add(1, atomic::Ordering::Relaxed)
     }
 }
 
