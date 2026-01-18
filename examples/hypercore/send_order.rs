@@ -29,8 +29,15 @@ async fn main() -> anyhow::Result<()> {
     let signer = args.get()?;
 
     let client = hypercore::mainnet();
+    let role = client.user_role(signer.address()).await?;
+
     let perps = client.perps().await?;
     let btc = perps.iter().find(|perp| perp.name == "BTC").expect("btc");
+
+    let vault_address = match role {
+        hypercore::UserRole::SubAccount { master } => Some(master),
+        _ => None,
+    };
 
     let nonce = NonceHandler::default();
 
@@ -52,7 +59,7 @@ async fn main() -> anyhow::Result<()> {
                 grouping: OrderGrouping::Na,
             },
             nonce.next(),
-            None,
+            vault_address,
             None,
         )
         .await?;
@@ -79,7 +86,7 @@ async fn main() -> anyhow::Result<()> {
                         }],
                     },
                     nonce.next(),
-                    None,
+                    vault_address,
                     None,
                 )
                 .await?;
@@ -96,7 +103,7 @@ async fn main() -> anyhow::Result<()> {
                                 }],
                             },
                             nonce.next(),
-                            None,
+                            vault_address,
                             None,
                         )
                         .await?;
