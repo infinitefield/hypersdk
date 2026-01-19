@@ -56,12 +56,14 @@
 //! # }
 //! ```
 
+use std::ops::{Add, Div, Mul, Sub};
+
 use alloy::{
     primitives::{Address, FixedBytes, U256},
     providers::Provider,
     transports::TransportError,
 };
-use num_traits::{FromPrimitive, NumOps, One, ToPrimitive};
+use num_traits::{CheckedDiv, FromPrimitive, One, ToPrimitive};
 
 use crate::hyperevm::{
     DynProvider,
@@ -79,6 +81,22 @@ pub mod contracts;
 ///
 /// A 32-byte unique identifier for a Morpho Blue market.
 pub type MarketId = FixedBytes<32>;
+
+/// Trait defining required numeric operations for APY calculations.
+///
+/// This trait bounds the numeric types that can be used for calculating Annual
+/// Percentage Yields (APYs) in Morpho markets and MetaMorpho vaults.
+pub trait ApyOps<T = Self>:
+    FromPrimitive
+    + Add<T, Output = T>
+    + Sub<T, Output = T>
+    + Mul<T, Output = T>
+    + Div<T, Output = T>
+    + CheckedDiv
+    + One
+    + Copy
+{
+}
 
 /// Annual Percentage Yield (APY) for a Morpho market.
 ///
@@ -173,7 +191,7 @@ where
     #[must_use]
     pub fn apy<T256, F>(&self, convert: F) -> T256
     where
-        T256: NumOps + Copy,
+        T256: ApyOps,
         F: Fn(U256) -> T256,
     {
         let zero = convert(U256::ZERO);
@@ -348,7 +366,7 @@ where
         exp: F,
     ) -> anyhow::Result<PoolApy<T128>>
     where
-        T128: FromPrimitive + NumOps + One + Copy,
+        T128: ApyOps,
         F: FnOnce(T128) -> T128,
     {
         let morpho = IMorpho::new(address, self.provider.clone());
@@ -370,7 +388,7 @@ where
         exp: F,
     ) -> anyhow::Result<PoolApy<T128>>
     where
-        T128: FromPrimitive + NumOps + One + Copy,
+        T128: ApyOps,
         F: FnOnce(T128) -> T128,
     {
         let params = params.into();
@@ -388,8 +406,20 @@ where
         let one = T128::one();
 
         let fee = T128::from_u128(market.fee).ok_or_else(error)? / wad;
-        let utilization = T128::from_u128(market.totalBorrowAssets).ok_or_else(error)?
-            / T128::from_u128(market.totalSupplyAssets).ok_or_else(error)?;
+        let utilization = T128::from_u128(market.totalBorrowAssets)
+            .ok_or_else(error)?
+            .checked_div(&T128::from_u128(market.totalSupplyAssets).ok_or_else(error)?)
+            .ok_or_else(|| {
+                if market.totalSupplyAssets == 0 {
+                    anyhow::anyhow!("market has no assets supplied")
+                } else {
+                    anyhow::anyhow!(
+                        "unable to divide {} / {}",
+                        market.totalBorrowAssets,
+                        market.totalSupplyAssets
+                    )
+                }
+            })?;
         let rate = T128::from_u128(rate.to::<u128>()).ok_or_else(error)? / wad;
         let borrow_apy = (exp)(rate * seconds_in_a_year) - one;
         let supply_apy = borrow_apy * utilization * (one - fee);
@@ -449,7 +479,7 @@ where
     /// <https://github.com/morpho-org/metamorpho-v1.1/blob/main/src/MetaMorphoV1_1.sol#L796>
     pub async fn apy<T128, F>(&self, address: Address, exp: F) -> anyhow::Result<VaultApy<T128>>
     where
-        T128: FromPrimitive + NumOps + One + Copy,
+        T128: ApyOps,
         F: FnOnce(T128) -> T128 + Copy,
     {
         let error = || anyhow::anyhow!("unable to convert u128 into Float");
