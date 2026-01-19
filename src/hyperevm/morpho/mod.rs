@@ -198,7 +198,11 @@ where
         let gross_apy = self
             .components
             .iter()
-            .map(|component| {
+            .filter_map(|component| {
+                if component.pool.market.totalSupplyShares == 0 {
+                    return None;
+                }
+
                 let supplied_shares = convert(component.supplied_shares);
                 let total_supply_assets =
                     convert(U256::from(component.pool.market.totalSupplyAssets));
@@ -208,7 +212,7 @@ where
                 // Convert shares to assets: shares * total_assets / total_shares = assets
                 let supplied_assets = supplied_shares * total_supply_assets / total_supply_shares;
                 let supply_apy = convert(U256::from(component.supply_apy.to_u128().unwrap()));
-                supplied_assets * supply_apy / total_deposits
+                Some(supplied_assets * supply_apy / total_deposits)
             })
             .fold(zero, |acc, x| acc + x);
 
