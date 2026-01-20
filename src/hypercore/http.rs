@@ -886,7 +886,7 @@ impl Client {
     ///     hypersdk::hypercore::types::UserRole::Agent { user } => {
     ///         println!("Agent wallet for {}", user);
     ///     }
-    ///     hypersdk::hypercore::types::UserRole::SubAccount => println!("Subaccount"),
+    ///     hypersdk::hypercore::types::UserRole::SubAccount { master } => println!("Subaccount {master}"),
     ///     hypersdk::hypercore::types::UserRole::Missing => println!("Not found"),
     /// }
     /// # Ok(())

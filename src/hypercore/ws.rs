@@ -121,25 +121,30 @@ use std::{
 };
 
 use anyhow::Result;
-use futures::StreamExt;
+use futures::{SinkExt, StreamExt};
 use tokio::{
     sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
     time::{interval, sleep, timeout},
 };
 use url::Url;
-use yawc::{Options, WebSocket};
+use yawc::{Frame, Options, TcpWebSocket};
 
 use crate::hypercore::types::{Incoming, Outgoing, Subscription};
 
 struct Stream {
-    stream: WebSocket,
+    stream: TcpWebSocket,
 }
 
 impl Stream {
     /// Establish a WebSocket connection.
     async fn connect(url: Url) -> Result<Self> {
         let stream = yawc::WebSocket::connect(url)
-            .with_options(Options::default().with_no_delay())
+            .with_options(
+                Options::default()
+                    .with_no_delay()
+                    .with_balanced_compression()
+                    .with_utf8(),
+            )
             .await?;
 
         Ok(Self { stream })
@@ -147,29 +152,29 @@ impl Stream {
 
     /// Subscribes to a topic.
     async fn subscribe(&mut self, subscription: Subscription) -> anyhow::Result<()> {
-        self.stream
-            .send_json(&Outgoing::Subscribe { subscription })
-            .await?;
+        let text = serde_json::to_string(&Outgoing::Subscribe { subscription })?;
+        self.stream.send(Frame::text(text)).await?;
         Ok(())
     }
 
     /// Unsubscribes from a topic.
     async fn unsubscribe(&mut self, subscription: Subscription) -> anyhow::Result<()> {
-        self.stream
-            .send_json(&Outgoing::Unsubscribe { subscription })
-            .await?;
+        let text = serde_json::to_string(&Outgoing::Unsubscribe { subscription })?;
+        self.stream.send(Frame::text(text)).await?;
         Ok(())
     }
 
     /// Send a ping
     async fn ping(&mut self) -> anyhow::Result<()> {
-        self.stream.send_json(&Outgoing::Ping).await?;
+        let text = serde_json::to_string(&Outgoing::Ping)?;
+        self.stream.send(Frame::text(text)).await?;
         Ok(())
     }
 
     /// Send a pong
     async fn pong(&mut self) -> anyhow::Result<()> {
-        self.stream.send_json(&Outgoing::Pong).await?;
+        let text = serde_json::to_string(&Outgoing::Pong)?;
+        self.stream.send(Frame::text(text)).await?;
         Ok(())
     }
 }
@@ -179,15 +184,13 @@ impl futures::Stream for Stream {
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
-        while let Some(item) = ready!(this.stream.poll_next_unpin(cx)) {
-            match serde_json::from_slice(&item.payload) {
+        while let Some(frame) = ready!(this.stream.poll_next_unpin(cx)) {
+            match serde_json::from_slice(frame.payload()) {
                 Ok(ok) => {
                     return Poll::Ready(Some(ok));
                 }
                 Err(err) => {
-                    if let Ok(s) = std::str::from_utf8(&item.payload) {
-                        log::warn!("unable to parse: {}: {:?}", s, err);
-                    }
+                    log::warn!("unable to parse: {}: {:?}", frame.as_str(), err);
                 }
             }
         }
