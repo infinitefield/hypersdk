@@ -1431,6 +1431,7 @@ struct PerpUniverseItem {
 #[serde(rename_all = "camelCase")]
 pub enum MarginMode {
     StrictIsolated,
+    NoCross,
 }
 
 #[derive(Deserialize)]
