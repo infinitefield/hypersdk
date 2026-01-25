@@ -65,6 +65,7 @@ use std::{
     collections::HashMap,
     fmt,
     hash::{Hash, Hasher},
+    time::Duration,
 };
 
 use alloy::{
@@ -592,6 +593,74 @@ pub enum CandleInterval {
     #[serde(rename = "1M")]
     #[display("1M")]
     OneMonth,
+}
+
+impl CandleInterval {
+    /// Returns the duration represented by this candle interval.
+    ///
+    /// ## Notes
+    ///
+    /// - For all fixed intervals (minutes, hours, days, weeks), the duration
+    ///   is strictly defined.
+    /// - For `OneMonth`, this method assumes **30 days** by default.
+    ///
+    /// If you need a calendar-aware duration (e.g. 28/29/30/31 days),
+    /// use [`to_duration_with_month_days`] instead.
+    pub fn to_duration(&self) -> Duration {
+        self.to_duration_with_month_days(30)
+    }
+
+    /// Returns the duration represented by this candle interval, using the
+    /// provided number of days for a calendar month.
+    ///
+    /// ## Parameters
+    ///
+    /// - `month_days`: Number of days in the month (e.g. 28, 29, 30, or 31).
+    ///
+    /// ## Notes
+    ///
+    /// - This parameter is **only meaningful** for `OneMonth`.
+    /// - For all other intervals, the value of `month_days` is ignored.
+    ///
+    /// ## When to use
+    ///
+    /// Use this method when:
+    /// - Replaying historical data
+    /// - Performing backtests
+    /// - Working with calendar-aware candle alignment
+    ///
+    /// ## Example
+    ///
+    /// ```rust
+    /// let interval = CandleInterval::OneMonth;
+    ///
+    /// // February
+    /// let feb = interval.to_duration_with_month_days(28);
+    ///
+    /// // March
+    /// let mar = interval.to_duration_with_month_days(31);
+    /// ```
+    pub fn to_duration_with_month_days(&self, month_days: u32) -> Duration {
+        match self {
+            CandleInterval::OneMinute => Duration::from_secs(60),
+            CandleInterval::ThreeMinutes => Duration::from_secs(3 * 60),
+            CandleInterval::FiveMinutes => Duration::from_secs(5 * 60),
+            CandleInterval::FifteenMinutes => Duration::from_secs(15 * 60),
+            CandleInterval::ThirtyMinutes => Duration::from_secs(30 * 60),
+
+            CandleInterval::OneHour => Duration::from_secs(60 * 60),
+            CandleInterval::TwoHours => Duration::from_secs(2 * 60 * 60),
+            CandleInterval::FourHours => Duration::from_secs(4 * 60 * 60),
+            CandleInterval::EightHours => Duration::from_secs(8 * 60 * 60),
+            CandleInterval::TwelveHours => Duration::from_secs(12 * 60 * 60),
+
+            CandleInterval::OneDay => Duration::from_secs(24 * 60 * 60),
+            CandleInterval::ThreeDays => Duration::from_secs(3 * 24 * 60 * 60),
+            CandleInterval::OneWeek => Duration::from_secs(7 * 24 * 60 * 60),
+
+            CandleInterval::OneMonth => Duration::from_secs(month_days as u64 * 24 * 60 * 60),
+        }
+    }
 }
 
 impl std::str::FromStr for CandleInterval {
