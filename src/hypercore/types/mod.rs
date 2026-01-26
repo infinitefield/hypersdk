@@ -125,6 +125,20 @@ pub struct Dex {
 }
 
 impl Dex {
+    /// Creates a new `Dex` instance.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: The name of the DEX.
+    /// - `index`: The numerical index associated with the DEX.
+    ///
+    /// # Returns
+    ///
+    /// A new `Dex` instance.
+    pub fn new(name: String, index: usize) -> Dex {
+        Dex { name, index }
+    }
+
     /// Returns the DEX name.
     #[must_use]
     pub fn name(&self) -> &str {
@@ -2621,7 +2635,10 @@ pub(super) enum InfoRequest {
     ClearinghouseState {
         user: Address,
     },
-    AllMids,
+    AllMids {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        dex: Option<String>,
+    },
     CandleSnapshot {
         req: CandleSnapshotRequest,
     },

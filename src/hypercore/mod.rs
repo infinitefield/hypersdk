@@ -1595,7 +1595,7 @@ mod tests {
     #[tokio::test]
     async fn test_http_all_mids() {
         let client = hypercore::mainnet();
-        let mids = client.all_mids().await.unwrap();
+        let mids = client.all_mids(None).await.unwrap();
 
         // Should have prices for major markets
         assert!(mids.contains_key("BTC"));
