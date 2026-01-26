@@ -987,9 +987,6 @@ pub struct BasicOrder {
     pub oid: u64,
     pub orig_sz: Decimal,
     pub cloid: Option<B128>,
-    pub order_type: OrderType,
-    pub tif: Option<TimeInForce>,
-    pub reduce_only: bool,
 }
 
 /// Liquidation details.
