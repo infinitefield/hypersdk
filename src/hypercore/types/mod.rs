@@ -1055,6 +1055,14 @@ pub enum OrderType {
     Limit,
     Market,
     Trigger,
+    #[serde(rename = "Stop Market")]
+    StopMarket,
+    #[serde(rename = "Stop Limit")]
+    StopLimit,
+    #[serde(rename = "Take Profit Market")]
+    TakeProfitMarket,
+    #[serde(rename = "Take Profit Limit")]
+    TakeProfitLimit,
 }
 
 /// Time‑in‑force.
