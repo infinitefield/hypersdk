@@ -1576,7 +1576,7 @@ mod tests {
         let client = hypercore::mainnet();
         // Use a known address with positions (Hyperliquid vault)
         let user = address!("0x162cc7c861ebd0c06b3d72319201150482518185");
-        let state = client.clearinghouse_state(user).await.unwrap();
+        let state = client.clearinghouse_state(user, None).await.unwrap();
 
         // Verify structure is returned correctly
         assert!(state.time > 0);
@@ -1608,7 +1608,7 @@ mod tests {
         let client = hypercore::mainnet();
         let user = address!("0xdfc24b077bc1425ad1dea75bcb6f8158e10df303");
         // Should return a list (possibly empty) without error
-        let _orders = client.open_orders(user).await.unwrap();
+        let _orders = client.open_orders(user, None).await.unwrap();
     }
 
     #[tokio::test]

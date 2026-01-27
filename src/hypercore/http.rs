@@ -324,7 +324,7 @@ impl Client {
     /// # async fn example() -> anyhow::Result<()> {
     /// let client = hypercore::mainnet();
     /// let user: Address = "0x...".parse()?;
-    /// let orders = client.open_orders(user).await?;
+    /// let orders = client.open_orders(user, None).await?;
     ///
     /// for order in orders {
     ///     println!("{} {} @ {}", order.side, order.sz, order.limit_px);
@@ -332,14 +332,21 @@ impl Client {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn open_orders(&self, user: Address) -> Result<Vec<BasicOrder>> {
+    pub async fn open_orders(
+        &self,
+        user: Address,
+        dex_name: Option<String>,
+    ) -> Result<Vec<BasicOrder>> {
         let mut api_url = self.base_url.clone();
         api_url.set_path("/info");
 
         let data = self
             .http_client
             .post(api_url)
-            .json(&InfoRequest::FrontendOpenOrders { user })
+            .json(&InfoRequest::FrontendOpenOrders {
+                user,
+                dex: dex_name,
+            })
             .send()
             .await?
             .json()
@@ -576,7 +583,7 @@ impl Client {
     /// # async fn example() -> anyhow::Result<()> {
     /// let client = hypercore::mainnet();
     /// let user: Address = "0x...".parse()?;
-    /// let state = client.clearinghouse_state(user).await?;
+    /// let state = client.clearinghouse_state(user, None).await?;
     ///
     /// // Check account value and withdrawable amount
     /// println!("Account value: {}", state.margin_summary.account_value);
@@ -600,14 +607,21 @@ impl Client {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn clearinghouse_state(&self, user: Address) -> Result<ClearinghouseState> {
+    pub async fn clearinghouse_state(
+        &self,
+        user: Address,
+        dex_name: Option<String>,
+    ) -> Result<ClearinghouseState> {
         let mut api_url = self.base_url.clone();
         api_url.set_path("/info");
 
         let data = self
             .http_client
             .post(api_url)
-            .json(&InfoRequest::ClearinghouseState { user })
+            .json(&InfoRequest::ClearinghouseState {
+                user,
+                dex: dex_name,
+            })
             .send()
             .await?
             .json()

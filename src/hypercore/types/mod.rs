@@ -2617,6 +2617,8 @@ pub(super) enum InfoRequest {
     PerpDexs,
     FrontendOpenOrders {
         user: Address,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        dex: Option<String>,
     },
     HistoricalOrders {
         user: Address,
@@ -2634,6 +2636,8 @@ pub(super) enum InfoRequest {
     },
     ClearinghouseState {
         user: Address,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        dex: Option<String>,
     },
     AllMids {
         #[serde(skip_serializing_if = "Option::is_none")]
