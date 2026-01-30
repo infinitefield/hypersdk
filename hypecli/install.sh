@@ -14,11 +14,11 @@ detect_platform() {
 
     case "$OS" in
         Linux)
-            OS="unknown-linux-gnu"
+            PLATFORM_OS="linux"
             DEFAULT_INSTALL_DIR="/usr/local/bin"
             ;;
         Darwin)
-            OS="apple-darwin"
+            PLATFORM_OS="macos"
             DEFAULT_INSTALL_DIR="$HOME/.local/bin"
             ;;
         *)
@@ -29,10 +29,10 @@ detect_platform() {
 
     case "$ARCH" in
         x86_64|amd64)
-            ARCH="x86_64"
+            PLATFORM_ARCH="x86_64"
             ;;
         arm64|aarch64)
-            ARCH="aarch64"
+            PLATFORM_ARCH="aarch64"
             ;;
         *)
             echo "Error: Unsupported architecture: $ARCH"
@@ -40,7 +40,7 @@ detect_platform() {
             ;;
     esac
 
-    TARGET="${ARCH}-${OS}"
+    TARGET="${PLATFORM_OS}-${PLATFORM_ARCH}"
     INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 }
 
