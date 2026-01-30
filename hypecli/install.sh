@@ -6,7 +6,6 @@ set -e
 
 REPO="infinitefield/hypersdk"
 BINARY="hypecli"
-INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
 # Detect OS and architecture
 detect_platform() {
@@ -15,10 +14,12 @@ detect_platform() {
 
     case "$OS" in
         Linux)
-            OS="linux"
+            OS="unknown-linux-gnu"
+            DEFAULT_INSTALL_DIR="/usr/local/bin"
             ;;
         Darwin)
-            OS="darwin"
+            OS="apple-darwin"
+            DEFAULT_INSTALL_DIR="$HOME/.local/bin"
             ;;
         *)
             echo "Error: Unsupported operating system: $OS"
@@ -39,7 +40,8 @@ detect_platform() {
             ;;
     esac
 
-    PLATFORM="${OS}-${ARCH}"
+    TARGET="${ARCH}-${OS}"
+    INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 }
 
 # Get the latest release version
@@ -56,11 +58,11 @@ install() {
     detect_platform
     get_latest_version
 
-    echo "Installing ${BINARY} ${VERSION} for ${PLATFORM}..."
+    echo "Installing ${BINARY} ${VERSION} for ${TARGET}..."
 
-    # Construct download URL
-    # Adjust this pattern based on your actual release asset naming
-    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${BINARY}-${PLATFORM}"
+    # Construct download URL (matches GitHub releases asset naming)
+    ASSET_NAME="${BINARY}-${TARGET}.tar.gz"
+    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${ASSET_NAME}"
 
     # Create temp directory
     TMP_DIR=$(mktemp -d)
@@ -68,17 +70,24 @@ install() {
 
     # Download binary
     echo "Downloading from ${DOWNLOAD_URL}..."
-    if ! curl -fsSL "$DOWNLOAD_URL" -o "${TMP_DIR}/${BINARY}"; then
+    if ! curl -fsSL "$DOWNLOAD_URL" -o "${TMP_DIR}/${ASSET_NAME}"; then
         echo "Error: Failed to download ${BINARY}"
         echo ""
-        echo "Release assets may not be available yet."
+        echo "Release assets may not be available for ${TARGET}."
         echo "You can build from source instead:"
         echo "  cargo install --git https://github.com/${REPO} --bin ${BINARY}"
         exit 1
     fi
 
+    # Extract
+    echo "Extracting..."
+    tar -xzf "${TMP_DIR}/${ASSET_NAME}" -C "${TMP_DIR}"
+
     # Make executable
     chmod +x "${TMP_DIR}/${BINARY}"
+
+    # Ensure install directory exists
+    mkdir -p "$INSTALL_DIR"
 
     # Install
     if [ -w "$INSTALL_DIR" ]; then
@@ -90,6 +99,18 @@ install() {
 
     echo ""
     echo "Successfully installed ${BINARY} to ${INSTALL_DIR}/${BINARY}"
+
+    # Check if install dir is in PATH
+    case ":$PATH:" in
+        *":$INSTALL_DIR:"*) ;;
+        *)
+            echo ""
+            echo "Note: ${INSTALL_DIR} is not in your PATH."
+            echo "Add it to your shell profile:"
+            echo "  export PATH=\"${INSTALL_DIR}:\$PATH\""
+            ;;
+    esac
+
     echo ""
     echo "Run '${BINARY} --help' to get started"
     echo "Run '${BINARY} --agent-help' for detailed AI agent documentation"
