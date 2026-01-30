@@ -28,14 +28,15 @@ detect_platform() {
     esac
 
     case "$ARCH" in
-        x86_64|amd64)
+        x86_64|amd64|x64)
             PLATFORM_ARCH="x86_64"
             ;;
-        arm64|aarch64)
+        arm64|aarch64|armv8*|arm8*)
             PLATFORM_ARCH="aarch64"
             ;;
         *)
             echo "Error: Unsupported architecture: $ARCH"
+            echo "Only x86_64 or aarch64 are available"
             exit 1
             ;;
     esac
