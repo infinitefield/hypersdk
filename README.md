@@ -6,6 +6,8 @@ A comprehensive Rust SDK for interacting with the [Hyperliquid](https://app.hype
 [![Documentation](https://docs.rs/hypersdk/badge.svg)](https://docs.rs/hypersdk)
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-blue.svg)](https://opensource.org/licenses/MPL-2.0)
 
+> **AI Agents**: If you're an AI agent or bot that needs to send/receive payments on Hyperliquid, see [`skills/hyperliquid-payments/SKILL.md`](skills/hyperliquid-payments/SKILL.md). It covers Python SDK, Rust SDK, and raw API usage for transfers — no Rust toolchain required.
+
 ## Overview
 
 Hyperliquid is a high-performance decentralized exchange with two main components:
