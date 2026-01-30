@@ -11,6 +11,12 @@ A command-line interface for interacting with the [Hyperliquid](https://app.hype
 
 ## Installation
 
+### Quick Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/infinitefield/hypersdk/main/hypecli/install.sh | sh
+```
+
 ### From crates.io
 
 ```bash
