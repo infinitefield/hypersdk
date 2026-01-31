@@ -13,7 +13,7 @@ use account::AccountCmd;
 use balances::BalanceCmd;
 use clap::{Args, Parser};
 use hypersdk::hypercore::Chain;
-use markets::{PerpsCmd, SpotCmd};
+use markets::{DexesCmd, PerpsCmd, SpotCmd};
 use morpho::{MorphoApyCmd, MorphoPositionCmd, MorphoVaultApyCmd};
 use multisig::MultiSigCmd;
 use orders::OrderCmd;
@@ -42,6 +42,8 @@ enum Command {
     Account(AccountCmd),
     /// Query all balances (spot, perp, and DEX) for a user
     Balance(BalanceCmd),
+    /// List HIP-3 DEXes
+    Dexes(DexesCmd),
     /// List perpetual markets
     Perps(PerpsCmd),
     /// List spot markets
@@ -72,6 +74,7 @@ impl Command {
         match self {
             Self::Account(cmd) => cmd.run().await,
             Self::Balance(cmd) => cmd.run().await,
+            Self::Dexes(cmd) => cmd.run().await,
             Self::Perps(cmd) => cmd.run().await,
             Self::Spot(cmd) => cmd.run().await,
             Self::MorphoPosition(cmd) => cmd.run().await,
@@ -162,6 +165,7 @@ Order commands use human-readable asset names with automatic index resolution:
   dex:SYMBOL    xyz:BTC         Perpetual on HIP3 DEX
 
 Use `hypecli perps` or `hypecli spot` to list available markets.
+Use `hypecli dexes` to list available HIP-3 DEXes.
 
 ACCOUNT COMMANDS
 ----------------
@@ -180,8 +184,17 @@ Keystores are stored in ~/.foundry/keystores/ and are compatible with Foundry.
 QUERY COMMANDS (No Authentication Required)
 -------------------------------------------
 
+List HIP-3 DEXes:
+  hypecli dexes
+
+  Lists all available HIP-3 perpetual DEXes by name.
+
 List Perpetual Markets:
   hypecli perps
+  hypecli perps --dex <DEX_NAME>
+
+  Options:
+  --dex <NAME>  Query markets from a specific HIP-3 DEX
 
 List Spot Markets:
   hypecli spot
@@ -190,6 +203,11 @@ Query All Balances (Spot, Perp, All DEXes):
   hypecli balance <ADDRESS>
   hypecli balance <ADDRESS> --format table
   hypecli balance <ADDRESS> --format json
+  hypecli balance <ADDRESS> --skip-hip3
+
+  Options:
+  --format <pretty|table|json>  Output format (default: pretty)
+  --skip-hip3                   Skip querying HIP-3 DEX balances
 
   Output formats:
   - pretty (default): Human-readable indented output
@@ -199,7 +217,7 @@ Query All Balances (Spot, Perp, All DEXes):
   Shows:
   - Spot balances (coin, hold, total)
   - Perp account (account value, margin used, withdrawable, positions)
-  - All HIP-3 DEX balances (automatically queries all available DEXes)
+  - All HIP-3 DEX balances (unless --skip-hip3 is set)
 
 Query Morpho Position:
   hypecli morpho-position --address <ADDRESS>

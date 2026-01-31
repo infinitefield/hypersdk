@@ -11,76 +11,37 @@ Unlike Solana or Ethereum where every transfer costs gas fees (even small ones a
 
 Supported tokens: USDC, HYPE, and 50+ spot tokens.
 
-## Setup
+## Installation
 
-### Option 1: Python with eth_account (recommended)
-
-All operations use the Hyperliquid REST API directly. The only dependency is `eth_account` for wallet management and EIP-712 signing.
+Install hypecli, a command-line tool that handles all the signing and API complexity:
 
 ```bash
-pip install eth_account requests
+curl -fsSL https://raw.githubusercontent.com/infinitefield/hypersdk/main/hypecli/install.sh | sh
 ```
 
-```python
-from pathlib import Path
-from eth_account import Account
+This downloads the pre-built binary for your platform (macOS or Linux, x86_64 or ARM64) and installs it to `~/.local/bin` (macOS) or `/usr/local/bin` (Linux).
 
-private_key = (Path.home() / ".hyperliquid" / "key").read_text().strip()
-account = Account.from_key(private_key)
-```
-
-### Option 2: Rust SDK (hypersdk)
+For detailed documentation on all available commands:
 
 ```bash
-# Install Rust if needed: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-cargo new --bin my_agent && cd my_agent
-cargo add hypersdk anyhow tokio --features tokio/full
+hypecli --agent-help
 ```
-
-```rust
-use hypersdk::hypercore::{self, PrivateKeySigner};
-
-let client = hypercore::mainnet();
-let signer: PrivateKeySigner = "your_private_key".parse()?;
-```
-
-### Option 3: Raw HTTP API (zero dependencies)
-
-All operations are POST requests to `https://api.hyperliquid.xyz`. No SDK needed - any language with HTTP + EIP-712 signing works. See "Raw API" sections below.
 
 ## Wallet Setup
 
-Generate a new Ethereum private key and store it at `~/.hyperliquid/key`. This is your agent's wallet.
+Create an encrypted keystore to securely store your wallet:
 
 ```bash
-pip install eth_account
+# Create a new wallet with encrypted keystore
+hypecli account create --name default --password yourpassword
+
+# List available keystores
+hypecli account list
 ```
 
-```python
-from pathlib import Path
-from eth_account import Account
+Your wallet address will be displayed when creating the account. This is your agent's Hyperliquid address — share it to receive payments.
 
-key_dir = Path.home() / ".hyperliquid"
-key_file = key_dir / "key"
-
-if key_file.exists():
-    # Load existing key
-    private_key = key_file.read_text().strip()
-    account = Account.from_key(private_key)
-else:
-    # Generate new key
-    account = Account.create()
-    private_key = account.key.hex()
-    key_dir.mkdir(mode=0o700, exist_ok=True)
-    key_file.write_text(private_key)
-    key_file.chmod(0o600)
-
-print(f"Agent address: {account.address}")
-```
-
-The key is stored at `~/.hyperliquid/key` with restricted file permissions (owner-only read/write). Never log the key or commit it to version control.
-
-Your Hyperliquid address is the same as your Ethereum address. No separate account creation needed - any Ethereum address works on Hyperliquid automatically once funded.
+Keystores are stored encrypted in `~/.foundry/keystores/` and are compatible with Foundry tools.
 
 ## Getting Funded
 
@@ -104,252 +65,69 @@ Send them this message:
 
 ### If another agent is paying you
 
-Just share your address. Transfers on Hyperliquid are free and instant - the sender calls `usd_transfer` with your address.
+Just share your address. Transfers on Hyperliquid are free and instant.
 
-## Sending USDC to Another Address
+## Sending Payments
 
-This is the primary operation for agent-to-agent payments. Free and instant.
-
-### Python
-
-```python
-from pathlib import Path
-from eth_account import Account
-from eth_account.messages import encode_typed_data
-import requests, json, time
-
-private_key = (Path.home() / ".hyperliquid" / "key").read_text().strip()
-account = Account.from_key(private_key)
-nonce = int(time.time() * 1000)
-
-action = {
-    "type": "usdSend",
-    "hyperliquidChain": "Mainnet",
-    "signatureChainId": "0xa4b1",
-    "destination": "0xRecipientAddress",
-    "amount": "10",
-    "time": nonce
-}
-
-typed_data = {
-    "types": {
-        "EIP712Domain": [
-            {"name": "name", "type": "string"},
-            {"name": "version", "type": "string"},
-            {"name": "chainId", "type": "uint256"},
-            {"name": "verifyingContract", "type": "address"}
-        ],
-        "HyperliquidTransaction:UsdSend": [
-            {"name": "hyperliquidChain", "type": "string"},
-            {"name": "destination", "type": "string"},
-            {"name": "amount", "type": "string"},
-            {"name": "time", "type": "uint64"}
-        ]
-    },
-    "primaryType": "HyperliquidTransaction:UsdSend",
-    "domain": {
-        "name": "HyperliquidSignTransaction",
-        "version": "1",
-        "chainId": 42161,
-        "verifyingContract": "0x0000000000000000000000000000000000000000"
-    },
-    "message": {
-        "hyperliquidChain": "Mainnet",
-        "destination": "0xRecipientAddress",
-        "amount": "10",
-        "time": nonce
-    }
-}
-
-signable = encode_typed_data(full_message=typed_data)
-signed = account.sign_message(signable)
-
-resp = requests.post("https://api.hyperliquid.xyz/exchange",
-    headers={"Content-Type": "application/json"},
-    data=json.dumps({
-        "action": action,
-        "nonce": nonce,
-        "signature": {"r": hex(signed.r), "s": hex(signed.s), "v": signed.v}
-    })
-)
-print(resp.json())
-```
-
-### Rust
-
-```rust
-use hypersdk::hypercore::types::UsdSend;
-use std::time::{SystemTime, UNIX_EPOCH};
-
-let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
-client.send_usdc(
-    &signer,
-    UsdSend {
-        destination: "0xRecipientAddress".parse()?,
-        amount: rust_decimal::dec!(10.0),
-        time: nonce,
-    },
-    nonce,
-).await?;
-```
-
-### Raw API
-
-```
-POST https://api.hyperliquid.xyz/exchange
-
-{
-  "action": {
-    "type": "usdSend",
-    "hyperliquidChain": "Mainnet",
-    "signatureChainId": "0xa4b1",
-    "destination": "0xRecipientAddress",
-    "amount": "10",
-    "time": 1706000000000
-  },
-  "nonce": 1706000000000,
-  "signature": {
-    "r": "0x...",
-    "s": "0x...",
-    "v": 27
-  }
-}
-```
-
-The signature is an EIP-712 typed data signature. See the Python example above for the full signing implementation.
-
-## Checking Balances
-
-Info endpoints don't require signatures. Any agent can check any address's balance.
-
-### Python / curl
-
-```python
-import requests
-
-address = "0xYourAddress"
-
-# Perps balance
-perps = requests.post("https://api.hyperliquid.xyz/info",
-    json={"type": "clearinghouseState", "user": address}).json()
-print(f"Account value: {perps['marginSummary']['accountValue']}")
-print(f"Withdrawable: {perps['withdrawable']}")
-
-# Spot balances
-spot = requests.post("https://api.hyperliquid.xyz/info",
-    json={"type": "spotClearinghouseState", "user": address}).json()
-print(f"Spot balances: {spot['balances']}")
-```
-
-Or with curl:
+Send USDC or other tokens to another address:
 
 ```bash
-# Perps balance
-curl -s -X POST https://api.hyperliquid.xyz/info \
-  -H 'Content-Type: application/json' \
-  -d '{"type": "clearinghouseState", "user": "0xYourAddress"}'
+# Send 10 USDC to another address
+hypecli send --keystore default --password yourpassword --token USDC --amount 10 --destination 0xRecipientAddress
 
-# Spot balance
-curl -s -X POST https://api.hyperliquid.xyz/info \
-  -H 'Content-Type: application/json' \
-  -d '{"type": "spotClearinghouseState", "user": "0xYourAddress"}'
+# Send HYPE tokens
+hypecli send --keystore default --password yourpassword --token HYPE --amount 5 --destination 0xRecipientAddress
 ```
 
-### Rust
-
-```rust
-let state = client.clearinghouse_state(signer.address()).await?;
-println!("Account value: {:?}", state);
-
-let balances = client.user_balances(signer.address()).await?;
-println!("Balances: {:?}", balances);
-```
-
-## Moving USDC Between Spot and Perps
+### Transfer between your own balances
 
 USDC on Hyperliquid exists in two contexts: spot balance and perps balance. Incoming CCTP bridge deposits arrive in spot. Transfers between agents use the perps balance.
 
-### Raw API
+```bash
+# Move USDC from spot to perp balance (after bridging)
+hypecli send --keystore default --password yourpassword --token USDC --amount 100 --from spot --to perp
 
-```
-POST https://api.hyperliquid.xyz/exchange
-
-action.type: "usdClassTransfer"
-action.amount: "100"
-action.toPerp: true   // Spot -> Perps (false for Perps -> Spot)
+# Move USDC from perp to spot balance
+hypecli send --keystore default --password yourpassword --token USDC --amount 100 --from perp --to spot
 ```
 
-Uses the same EIP-712 signing pattern as usdSend. The typed data primary type is `HyperliquidTransaction:UsdClassTransfer` with fields `hyperliquidChain` (string), `amount` (string), and `toPerp` (bool).
+### Send from spot to another user's spot
 
-### Rust
-
-```rust
-// Spot -> Perps
-client.transfer_to_perps(&signer, rust_decimal::dec!(100.0), "USDC", nonce).await?;
-
-// Perps -> Spot
-client.transfer_to_spot(&signer, rust_decimal::dec!(100.0), "USDC", nonce).await?;
+```bash
+hypecli send --keystore default --password yourpassword --token USDC --amount 50 --from spot --to spot --destination 0xRecipientAddress
 ```
 
-## Address Book
+## Checking Balances
 
-Agents can store known addresses locally at `~/.hyperliquid/contacts.json` to avoid passing raw hex strings around.
+```bash
+# Check any address's balance
+hypecli balance 0xAddress
 
-```python
-import json
-from pathlib import Path
-
-CONTACTS_FILE = Path.home() / ".hyperliquid" / "contacts.json"
-
-def load_contacts():
-    if CONTACTS_FILE.exists():
-        return json.loads(CONTACTS_FILE.read_text())
-    return {}
-
-def save_contact(name, address):
-    contacts = load_contacts()
-    contacts[name] = address
-    CONTACTS_FILE.write_text(json.dumps(contacts, indent=2))
-
-def get_address(name):
-    contacts = load_contacts()
-    if name not in contacts:
-        raise KeyError(f"Unknown contact: {name}")
-    return contacts[name]
+# Check balance with JSON output (for parsing)
+hypecli balance 0xAddress --format json
 ```
 
-Usage:
-
-```python
-# Save a contact
-save_contact("alice", "0xA7D8fD06ff95B7BEe517C4359171ba45435F026b")
-
-# Send by name instead of address
-destination = get_address("alice")
-```
-
-The file is stored alongside the key at `~/.hyperliquid/` and follows the same convention. Agents can share their name + address so other agents can add them as contacts.
+This shows spot balances, perp account value, margin, withdrawable funds, and positions.
 
 ## Security
 
-- **Never log or commit private keys.** Use environment variables or secure key stores.
+- **Use encrypted keystores.** Never store plaintext private keys.
 - **Use API wallets for bots.** On Hyperliquid, you can create API wallets that can trade but cannot withdraw funds. This limits damage if a key is compromised. Create one at https://app.hyperliquid.xyz/API
 - **Keep minimal balances.** Only keep what the agent needs for near-term operations.
 
 ## Quick Reference
 
-| Operation | Cost | Speed | Auth Required |
-|-----------|------|-------|---------------|
-| Send USDC (agent-to-agent) | Free | Instant | Signature |
-| Check balance | Free | Instant | None |
-| Spot <-> Perps transfer | Free | Instant | Signature |
-| Bridge USDC in (via cctp.to) | Free | ~2-5 min | Human wallet |
-| Withdraw to EVM | ~$1 | ~5 min | Signature |
+| Operation                    | Cost | Speed    | Auth Required |
+| ---------------------------- | ---- | -------- | ------------- |
+| Send USDC (agent-to-agent)   | Free | Instant  | Keystore      |
+| Check balance                | Free | Instant  | None          |
+| Spot <-> Perps transfer      | Free | Instant  | Keystore      |
+| Bridge USDC in (via cctp.to) | Free | ~2-5 min | Human wallet  |
+| Withdraw to EVM              | ~$1  | ~5 min   | Keystore      |
 
 ## Links
 
 - Hyperliquid docs: https://hyperliquid.gitbook.io/hyperliquid-docs/
-- eth_account (Python signing): https://github.com/ethereum/eth-account
-- Rust SDK (this repo): https://github.com/infinitefield/hypersdk
+- hypecli source: https://github.com/infinitefield/hypersdk
 - CCTP Bridge: https://cctp.to
 - API reference: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api

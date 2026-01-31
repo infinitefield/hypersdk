@@ -80,6 +80,10 @@ pub struct BalanceCmd {
     /// Output format.
     #[arg(long, default_value = "pretty")]
     pub format: OutputFormat,
+
+    /// Skip querying HIP-3 DEX balances.
+    #[arg(long)]
+    pub skip_hip3: bool,
 }
 
 impl BalanceCmd {
@@ -92,17 +96,17 @@ impl BalanceCmd {
         // Query perp clearinghouse state
         let perp_state = core.clearinghouse_state(self.user, None).await?;
 
-        // Query all DEXes
-        let dexes = core.perp_dexs().await?;
-
-        // Collect DEX states
+        // Query all DEXes (unless --skip-hip3 is set)
         let mut dex_states = Vec::new();
-        for dex in &dexes {
-            let dex_name = dex.name();
-            let state = core
-                .clearinghouse_state(self.user, Some(dex_name.to_string()))
-                .await?;
-            dex_states.push((dex_name.to_string(), state));
+        if !self.skip_hip3 {
+            let dexes = core.perp_dexs().await?;
+            for dex in &dexes {
+                let dex_name = dex.name();
+                let state = core
+                    .clearinghouse_state(self.user, Some(dex_name.to_string()))
+                    .await?;
+                dex_states.push((dex_name.to_string(), state));
+            }
         }
 
         match self.format {

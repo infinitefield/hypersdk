@@ -52,6 +52,26 @@ hypecli account list
 
 Keystores are stored in `~/.foundry/keystores/` and are compatible with Foundry's `cast` tool. Use the keystore name with `--keystore` in other commands.
 
+### List HIP-3 DEXes
+
+List all available HIP-3 perpetual DEXes.
+
+```bash
+hypecli dexes
+```
+
+### List Perpetual Markets
+
+List perpetual markets from Hyperliquid or a specific HIP-3 DEX.
+
+```bash
+# List all Hyperliquid perpetual markets
+hypecli perps
+
+# List perpetual markets from a specific HIP-3 DEX
+hypecli perps --dex xyz
+```
+
 ### Query Balances
 
 Query all balances (spot, perp, and DEX) for a user address.
@@ -65,9 +85,12 @@ hypecli balance 0x1234... --format table
 
 # JSON format for programmatic consumption
 hypecli balance 0x1234... --format json
+
+# Skip querying HIP-3 DEX balances (only show spot and perp)
+hypecli balance 0x1234... --skip-hip3
 ```
 
-Shows spot balances, perp account details (account value, margin used, withdrawable, positions), and all HIP-3 DEX balances.
+Shows spot balances, perp account details (account value, margin used, withdrawable, positions), and all HIP-3 DEX balances. Use `--skip-hip3` to skip DEX queries.
 
 ### Features
 
