@@ -68,14 +68,13 @@ struct Position {
 /// # Example
 ///
 /// ```bash
-/// hypecli balance --user 0x1234567890abcdef1234567890abcdef12345678
-/// hypecli balance --user 0x1234... --format table
-/// hypecli balance --user 0x1234... --format json
+/// hypecli balance 0x1234567890abcdef1234567890abcdef12345678
+/// hypecli balance 0x1234... --format table
+/// hypecli balance 0x1234... --format json
 /// ```
 #[derive(Args)]
 pub struct BalanceCmd {
     /// User address to query balances for.
-    #[arg(short, long)]
     pub user: Address,
 
     /// Output format.

@@ -187,9 +187,9 @@ List Spot Markets:
   hypecli spot
 
 Query All Balances (Spot, Perp, All DEXes):
-  hypecli balance --user <ADDRESS>
-  hypecli balance --user <ADDRESS> --format table
-  hypecli balance --user <ADDRESS> --format json
+  hypecli balance <ADDRESS>
+  hypecli balance <ADDRESS> --format table
+  hypecli balance <ADDRESS> --format json
 
   Output formats:
   - pretty (default): Human-readable indented output

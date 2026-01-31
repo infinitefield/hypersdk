@@ -58,13 +58,13 @@ Query all balances (spot, perp, and DEX) for a user address.
 
 ```bash
 # Pretty format (default)
-hypecli balance --user 0x1234567890abcdef1234567890abcdef12345678
+hypecli balance 0x1234567890abcdef1234567890abcdef12345678
 
 # Table format for terminal viewing
-hypecli balance --user 0x1234... --format table
+hypecli balance 0x1234... --format table
 
 # JSON format for programmatic consumption
-hypecli balance --user 0x1234... --format json
+hypecli balance 0x1234... --format json
 ```
 
 Shows spot balances, perp account details (account value, margin used, withdrawable, positions), and all HIP-3 DEX balances.
