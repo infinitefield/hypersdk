@@ -37,6 +37,38 @@ cargo install --path .
 hypecli --help
 ```
 
+### Account Management
+
+Create and manage Foundry-compatible keystores for signing transactions.
+
+```bash
+# Create a new keystore with a random private key
+hypecli account create --name my-wallet
+# You'll be prompted to enter and confirm a password
+
+# List all available keystores
+hypecli account list
+```
+
+Keystores are stored in `~/.foundry/keystores/` and are compatible with Foundry's `cast` tool. Use the keystore name with `--keystore` in other commands.
+
+### Query Balances
+
+Query all balances (spot, perp, and DEX) for a user address.
+
+```bash
+# Pretty format (default)
+hypecli balance --user 0x1234567890abcdef1234567890abcdef12345678
+
+# Table format for terminal viewing
+hypecli balance --user 0x1234... --format table
+
+# JSON format for programmatic consumption
+hypecli balance --user 0x1234... --format json
+```
+
+Shows spot balances, perp account details (account value, margin used, withdrawable, positions), and all HIP-3 DEX balances.
+
 ### Features
 
 #### Multi-Signature Transactions (P2P)
