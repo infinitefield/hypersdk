@@ -717,7 +717,7 @@ fn build_perp_price_ticks(sz_decimals: i64) -> PriceTick {
 /// ```
 #[derive(Debug, Clone)]
 pub struct PerpMarket {
-    /// Market name (e.g., "BTC", "ETH")
+    /// Market name (e.g., "BTC", "ETH", "xyz:EURC")
     pub name: String,
     /// Market index used in API calls
     pub index: usize,
@@ -1440,7 +1440,10 @@ where
     match s.as_str() {
         "enabled" => Ok(true),
         "disabled" => Ok(false),
-        _ => Err(serde::de::Error::custom(format!("invalid growth_mode value: {}", s))),
+        _ => Err(serde::de::Error::custom(format!(
+            "invalid growth_mode value: {}",
+            s
+        ))),
     }
 }
 

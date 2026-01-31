@@ -341,24 +341,118 @@ Workflow 5: Using Foundry Keystore
     --size 0.01
   # Password will be prompted interactively
 
+SEND COMMANDS (Free Asset Transfers)
+-------------------------------------
+
+Hyperliquid allows FREE asset transfers with no gas fees. Use the send command
+to transfer tokens between accounts, balances, DEXes, and subaccounts.
+
+Send Tokens Between Accounts:
+  hypecli send \
+    --chain mainnet \
+    --private-key <HEX> \
+    --token USDC \
+    --amount 100 \
+    --destination 0x1234...
+
+  Arguments:
+    --token <SYMBOL>           Token to send (e.g., USDC, HYPE, PURR)
+    --amount <DECIMAL>         Amount to send
+    --destination <ADDRESS>    Recipient address (optional, defaults to self)
+    --from <LOCATION>          Source: "perp", "spot", or HIP-3 DEX name (default: perp)
+    --to <LOCATION>            Destination: "perp", "spot", or HIP-3 DEX name (default: perp)
+    --from-subaccount <NAME>   Source subaccount name
+
+Transfer Between Your Own Balances (Perp <-> Spot):
+  # Move USDC from perp to spot balance
+  hypecli send \
+    --chain mainnet \
+    --private-key <HEX> \
+    --token USDC \
+    --amount 100 \
+    --from perp \
+    --to spot
+
+  # Move HYPE from spot to perp balance
+  hypecli send \
+    --chain mainnet \
+    --private-key <HEX> \
+    --token HYPE \
+    --amount 50 \
+    --from spot \
+    --to perp
+
+Send to Another User:
+  # Send USDC to another user's perp balance
+  hypecli send \
+    --chain mainnet \
+    --private-key <HEX> \
+    --token USDC \
+    --amount 100 \
+    --destination 0xRECIPIENT_ADDRESS
+
+  # Send HYPE from your spot to another user's spot
+  hypecli send \
+    --chain mainnet \
+    --private-key <HEX> \
+    --token HYPE \
+    --amount 50 \
+    --from spot \
+    --to spot \
+    --destination 0xRECIPIENT_ADDRESS
+
+Transfer Between DEXes (HIP-3):
+  # Transfer from perp to a HIP-3 DEX
+  hypecli send \
+    --chain mainnet \
+    --private-key <HEX> \
+    --token USDC \
+    --amount 100 \
+    --from perp \
+    --to xyz
+
+  # Transfer between two HIP-3 DEXes
+  hypecli send \
+    --chain mainnet \
+    --private-key <HEX> \
+    --token USDC \
+    --amount 100 \
+    --from abc \
+    --to xyz
+
+Send From Subaccount:
+  hypecli send \
+    --chain mainnet \
+    --private-key <HEX> \
+    --token USDC \
+    --amount 100 \
+    --from-subaccount my-sub \
+    --destination 0xRECIPIENT
+
 SUBSCRIBE COMMANDS (Real-time WebSocket Data)
 ---------------------------------------------
 
+Subscribe commands use the same unified asset format as order commands:
+  - "BTC" for BTC perpetual
+  - "PURR/USDC" for PURR spot market
+  - "xyz:BTC" for BTC perpetual on xyz HIP3 DEX
+
 Subscribe to Trades:
-  hypecli subscribe trades --coin BTC
-  hypecli subscribe trades --coin ETH --format json
+  hypecli subscribe trades --asset BTC
+  hypecli subscribe trades --asset PURR/USDC --format json
+  hypecli subscribe trades --asset xyz:BTC
 
 Subscribe to Best Bid/Offer (BBO):
-  hypecli subscribe bbo --coin BTC
-  hypecli subscribe bbo --coin ETH --format json
+  hypecli subscribe bbo --asset BTC
+  hypecli subscribe bbo --asset PURR/USDC --format json
 
 Subscribe to Order Book (L2):
-  hypecli subscribe orderbook --coin BTC
-  hypecli subscribe orderbook --coin BTC --depth 20
+  hypecli subscribe orderbook --asset BTC
+  hypecli subscribe orderbook --asset PURR/USDC --depth 20
 
 Subscribe to Candles (OHLCV):
-  hypecli subscribe candles --coin BTC --interval 1m
-  hypecli subscribe candles --coin ETH --interval 15m --format json
+  hypecli subscribe candles --asset BTC --interval 1m
+  hypecli subscribe candles --asset PURR/USDC --interval 15m --format json
 
   Available intervals: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 8h, 12h, 1d, 3d, 1w, 1M
 
@@ -377,14 +471,14 @@ Common Options:
   --chain <mainnet|testnet>  Target chain (default: mainnet)
   --format <pretty|json>     Output format (default: pretty)
 
-Workflow 6: Monitor BTC Trades
-  hypecli subscribe trades --coin BTC
+Workflow 6: Monitor BTC Perpetual Trades
+  hypecli subscribe trades --asset BTC
 
-Workflow 7: Monitor Order Book Depth
-  hypecli subscribe orderbook --coin ETH --depth 10
+Workflow 7: Monitor Spot Order Book Depth
+  hypecli subscribe orderbook --asset PURR/USDC --depth 10
 
-Workflow 8: Stream Candle Data as JSON
-  hypecli subscribe candles --coin BTC --interval 5m --format json
+Workflow 8: Stream HIP3 DEX Candle Data as JSON
+  hypecli subscribe candles --asset xyz:BTC --interval 5m --format json
 
 ERROR HANDLING
 --------------

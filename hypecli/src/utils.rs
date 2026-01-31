@@ -5,6 +5,7 @@
 //! - Finding and loading signers (private keys, keystores, Ledger)
 //! - Starting gossip nodes for peer-to-peer communication
 //! - Signing multi-sig actions
+//! - Parsing unified asset name formats
 
 use std::{env::home_dir, str::FromStr};
 
@@ -16,6 +17,8 @@ use iroh::{
     discovery::{dns::DnsDiscovery, mdns::MdnsDiscovery},
 };
 use iroh_tickets::endpoint::EndpointTicket;
+
+use hypersdk::hypercore::{HttpClient, PerpMarket, SpotMarket};
 
 use crate::SignerArgs;
 
@@ -180,5 +183,242 @@ pub async fn find_signer(
             }
         }
         Err(anyhow::anyhow!("unable to find matching key in ledger"))
+    }
+}
+
+/// Parsed asset specification.
+///
+/// Represents different asset types that can be specified using the unified format.
+#[derive(Debug, Clone)]
+pub enum AssetSpec<'a> {
+    /// Perpetual on Hyperliquid DEX (e.g., "BTC")
+    Perp(&'a str),
+    /// Spot market (e.g., "PURR/USDC")
+    Spot(&'a str, &'a str),
+    /// Perpetual on HIP3 DEX (e.g., "xyz:BTC")
+    Hip3Perp(&'a str, &'a str),
+}
+
+/// Parse an asset name string into an AssetSpec.
+///
+/// # Formats
+///
+/// - `"BTC"` → `Perp("BTC")` - Perpetual on Hyperliquid DEX
+/// - `"PURR/USDC"` → `Spot("PURR", "USDC")` - Spot market
+/// - `"xyz:BTC"` → `Hip3Perp("xyz", "BTC")` - Perpetual on HIP3 DEX
+///
+/// # Examples
+///
+/// ```
+/// let spec = parse_asset_spec("BTC").unwrap();
+/// // Returns AssetSpec::Perp("BTC")
+///
+/// let spec = parse_asset_spec("PURR/USDC").unwrap();
+/// // Returns AssetSpec::Spot("PURR", "USDC")
+///
+/// let spec = parse_asset_spec("xyz:BTC").unwrap();
+/// // Returns AssetSpec::Hip3Perp("xyz", "BTC")
+/// ```
+pub fn parse_asset_spec(asset: &str) -> anyhow::Result<AssetSpec<'_>> {
+    if let Some((base, quote)) = asset.split_once('/') {
+        // Spot market: BASE/QUOTE
+        Ok(AssetSpec::Spot(base, quote))
+    } else if let Some((dex, symbol)) = asset.split_once(':') {
+        // HIP3 DEX: dex:SYMBOL
+        Ok(AssetSpec::Hip3Perp(dex, symbol))
+    } else {
+        // Default: Hyperliquid perp
+        Ok(AssetSpec::Perp(asset))
+    }
+}
+
+/// Resolve an asset name to its index.
+///
+/// This queries the appropriate market data based on the asset format
+/// and returns the asset index for use in API calls.
+///
+/// # Arguments
+///
+/// * `client` - HTTP client for querying market data
+/// * `asset` - Asset name in unified format (e.g., "BTC", "PURR/USDC", "xyz:BTC")
+///
+/// # Returns
+///
+/// The asset index for use in API calls.
+pub async fn resolve_asset(client: &HttpClient, asset: &str) -> anyhow::Result<usize> {
+    let spec = parse_asset_spec(asset)?;
+
+    match spec {
+        AssetSpec::Perp(symbol) => {
+            let perps = client.perps().await?;
+            find_perp_index(&perps, symbol, None)
+        }
+        AssetSpec::Spot(base, quote) => {
+            let spots = client.spot().await?;
+            find_spot_index(&spots, base, quote)
+        }
+        AssetSpec::Hip3Perp(dex_name, symbol) => {
+            // First get the DEX
+            let dexs = client.perp_dexs().await?;
+            let dex = dexs
+                .iter()
+                .find(|d| d.name().eq_ignore_ascii_case(dex_name))
+                .ok_or_else(|| anyhow::anyhow!("HIP3 DEX '{}' not found", dex_name))?;
+
+            // Then get perps from that DEX
+            let perps = client.perps_from(dex.clone()).await?;
+            find_perp_index(&perps, symbol, Some(dex_name))
+        }
+    }
+}
+
+/// Find a perpetual market index by symbol.
+///
+/// Handles both regular perps (name = "BTC") and HIP3 perps (name = "xyz:BTC").
+fn find_perp_index(
+    perps: &[PerpMarket],
+    symbol: &str,
+    dex_name: Option<&str>,
+) -> anyhow::Result<usize> {
+    perps
+        .iter()
+        .find(|p| perp_name_matches(&p.name, symbol))
+        .map(|p| p.index)
+        .ok_or_else(|| {
+            let dex_desc = dex_name
+                .map(|d| format!(" on {} DEX", d))
+                .unwrap_or_default();
+            anyhow::anyhow!(
+                "Perpetual market '{}'{} not found. Use 'hypecli perps' to list available markets.",
+                symbol,
+                dex_desc
+            )
+        })
+}
+
+/// Check if a perp market name matches the given symbol.
+///
+/// Matches either:
+/// - Exact match (case-insensitive): "BTC" matches "BTC"
+/// - HIP3 format with prefix: "BTC" matches "xyz:BTC"
+fn perp_name_matches(name: &str, symbol: &str) -> bool {
+    if name.eq_ignore_ascii_case(symbol) {
+        return true;
+    }
+    // Check for "dex:SYMBOL" format
+    if let Some((_dex, market_symbol)) = name.split_once(':') {
+        return market_symbol.eq_ignore_ascii_case(symbol);
+    }
+    false
+}
+
+/// Find a spot market index by base and quote symbols.
+fn find_spot_index(spots: &[SpotMarket], base: &str, quote: &str) -> anyhow::Result<usize> {
+    spots
+        .iter()
+        .find(|s| {
+            s.base().name.eq_ignore_ascii_case(base) && s.quote().name.eq_ignore_ascii_case(quote)
+        })
+        .map(|s| s.index)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Spot market '{}/{}' not found. Use 'hypecli spot' to list available markets.",
+                base,
+                quote
+            )
+        })
+}
+
+/// Resolved asset information for subscriptions.
+///
+/// Contains the coin name to use for WebSocket subscriptions.
+#[derive(Debug, Clone)]
+pub struct ResolvedAsset {
+    /// The coin name to use for subscriptions (e.g., "BTC", "PURR", "@123")
+    pub coin: String,
+}
+
+/// Resolve an asset name to subscription parameters.
+///
+/// This resolves the unified asset format to the coin name and DEX
+/// needed for WebSocket subscriptions.
+///
+/// # Arguments
+///
+/// * `client` - HTTP client for querying market data
+/// * `asset` - Asset name in unified format (e.g., "BTC", "PURR/USDC", "xyz:BTC")
+///
+/// # Returns
+///
+/// A `ResolvedAsset` containing the coin name and optional DEX for subscriptions.
+pub async fn resolve_asset_for_subscription(
+    client: &HttpClient,
+    asset: &str,
+) -> anyhow::Result<ResolvedAsset> {
+    let spec = parse_asset_spec(asset)?;
+
+    match spec {
+        AssetSpec::Perp(symbol) => {
+            // Verify the perp exists
+            let perps = client.perps().await?;
+            let perp = perps
+                .iter()
+                .find(|p| p.name.eq_ignore_ascii_case(symbol))
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Perpetual market '{}' not found. Use 'hypecli perps' to list available markets.",
+                        symbol
+                    )
+                })?;
+            Ok(ResolvedAsset {
+                coin: perp.name.clone(),
+            })
+        }
+        AssetSpec::Spot(base, quote) => {
+            // Verify the spot market exists and get its index for the @-prefixed coin name
+            let spots = client.spot().await?;
+            let spot = spots
+                .iter()
+                .find(|s| {
+                    s.base().name.eq_ignore_ascii_case(base)
+                        && s.quote().name.eq_ignore_ascii_case(quote)
+                })
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Spot market '{}/{}' not found. Use 'hypecli spot' to list available markets.",
+                        base,
+                        quote
+                    )
+                })?;
+            // Spot subscriptions use @index format
+            Ok(ResolvedAsset {
+                coin: format!("@{}", spot.index - 10_000),
+            })
+        }
+        AssetSpec::Hip3Perp(dex_name, symbol) => {
+            // First get the DEX
+            let dexs = client.perp_dexs().await?;
+            let dex = dexs
+                .iter()
+                .find(|d| d.name().eq_ignore_ascii_case(dex_name))
+                .ok_or_else(|| anyhow::anyhow!("HIP3 DEX '{}' not found", dex_name))?;
+
+            // Then verify the perp exists on that DEX
+            let perps = client.perps_from(dex.clone()).await?;
+            let perp = perps
+                .iter()
+                .find(|p| perp_name_matches(&p.name, symbol))
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Perpetual market '{}' on {} DEX not found.",
+                        symbol,
+                        dex_name
+                    )
+                })?;
+
+            Ok(ResolvedAsset {
+                coin: perp.name.clone(),
+            })
+        }
     }
 }

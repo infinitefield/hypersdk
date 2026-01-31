@@ -2,6 +2,13 @@
 //!
 //! This module provides commands for subscribing to various WebSocket feeds
 //! including trades, orderbook updates, best bid/offer, candles, and user events.
+//!
+//! ## Asset Name Formats
+//!
+//! Assets are specified using the same unified format as order commands:
+//! - `BTC` - BTC perpetual on Hyperliquid DEX
+//! - `PURR/USDC` - PURR spot market
+//! - `xyz:BTC` - BTC perpetual on the "xyz" HIP3 DEX
 
 use std::io::{Write, stdout};
 
@@ -9,11 +16,13 @@ use alloy::primitives::Address;
 use clap::{Args, Subcommand, ValueEnum};
 use futures::StreamExt;
 use hypersdk::hypercore::{
-    self, Chain,
+    self, Chain, HttpClient,
     types::{Incoming, Subscription},
     ws::Event,
 };
 use rust_decimal::Decimal;
+
+use crate::utils::resolve_asset_for_subscription;
 
 /// Output format for subscription data.
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
@@ -58,21 +67,25 @@ impl SubscribeCmd {
     }
 }
 
-/// Subscribe to real-time trades for a coin.
+/// Subscribe to real-time trades for an asset.
 ///
 /// # Example
 ///
 /// ```bash
-/// hypecli subscribe trades --coin BTC
-/// hypecli subscribe trades --coin ETH --format json
+/// hypecli subscribe trades --asset BTC
+/// hypecli subscribe trades --asset PURR/USDC
+/// hypecli subscribe trades --asset xyz:BTC --format json
 /// ```
 #[derive(Args)]
 pub struct TradesCmd {
-    /// Coin symbol (e.g., BTC, ETH)
+    /// Asset name. Formats:
+    /// - "BTC" for BTC perpetual
+    /// - "PURR/USDC" for PURR spot market
+    /// - "xyz:BTC" for BTC perpetual on xyz HIP3 DEX
     #[arg(long)]
-    pub coin: String,
+    pub asset: String,
     /// Target chain
-    #[arg(long, default_value = "mainnet")]
+    #[arg(long, default_value = "Mainnet")]
     pub chain: Chain,
     /// Output format
     #[arg(long, default_value = "pretty")]
@@ -81,6 +94,9 @@ pub struct TradesCmd {
 
 impl TradesCmd {
     pub async fn run(self) -> anyhow::Result<()> {
+        let client = HttpClient::new(self.chain);
+        let resolved = resolve_asset_for_subscription(&client, &self.asset).await?;
+
         let core = match self.chain {
             Chain::Mainnet => hypercore::mainnet(),
             Chain::Testnet => hypercore::testnet(),
@@ -88,10 +104,10 @@ impl TradesCmd {
 
         let mut ws = core.websocket();
         ws.subscribe(Subscription::Trades {
-            coin: self.coin.clone(),
+            coin: resolved.coin.clone(),
         });
 
-        eprintln!("Subscribing to {} trades...", self.coin);
+        eprintln!("Subscribing to {} trades...", self.asset);
 
         while let Some(event) = ws.next().await {
             match event {
@@ -132,16 +148,20 @@ impl TradesCmd {
 /// # Example
 ///
 /// ```bash
-/// hypecli subscribe bbo --coin BTC
-/// hypecli subscribe bbo --coin ETH --format json
+/// hypecli subscribe bbo --asset BTC
+/// hypecli subscribe bbo --asset PURR/USDC
+/// hypecli subscribe bbo --asset xyz:BTC --format json
 /// ```
 #[derive(Args)]
 pub struct BboCmd {
-    /// Coin symbol (e.g., BTC, ETH)
+    /// Asset name. Formats:
+    /// - "BTC" for BTC perpetual
+    /// - "PURR/USDC" for PURR spot market
+    /// - "xyz:BTC" for BTC perpetual on xyz HIP3 DEX
     #[arg(long)]
-    pub coin: String,
+    pub asset: String,
     /// Target chain
-    #[arg(long, default_value = "mainnet")]
+    #[arg(long, default_value = "Mainnet")]
     pub chain: Chain,
     /// Output format
     #[arg(long, default_value = "pretty")]
@@ -150,6 +170,9 @@ pub struct BboCmd {
 
 impl BboCmd {
     pub async fn run(self) -> anyhow::Result<()> {
+        let client = HttpClient::new(self.chain);
+        let resolved = resolve_asset_for_subscription(&client, &self.asset).await?;
+
         let core = match self.chain {
             Chain::Mainnet => hypercore::mainnet(),
             Chain::Testnet => hypercore::testnet(),
@@ -157,10 +180,10 @@ impl BboCmd {
 
         let mut ws = core.websocket();
         ws.subscribe(Subscription::Bbo {
-            coin: self.coin.clone(),
+            coin: resolved.coin.clone(),
         });
 
-        eprintln!("Subscribing to {} BBO...", self.coin);
+        eprintln!("Subscribing to {} BBO...", self.asset);
 
         while let Some(event) = ws.next().await {
             match event {
@@ -205,16 +228,20 @@ impl BboCmd {
 /// # Example
 ///
 /// ```bash
-/// hypecli subscribe orderbook --coin BTC
-/// hypecli subscribe orderbook --coin ETH --depth 5
+/// hypecli subscribe orderbook --asset BTC
+/// hypecli subscribe orderbook --asset PURR/USDC --depth 5
+/// hypecli subscribe orderbook --asset xyz:BTC
 /// ```
 #[derive(Args)]
 pub struct OrderbookCmd {
-    /// Coin symbol (e.g., BTC, ETH)
+    /// Asset name. Formats:
+    /// - "BTC" for BTC perpetual
+    /// - "PURR/USDC" for PURR spot market
+    /// - "xyz:BTC" for BTC perpetual on xyz HIP3 DEX
     #[arg(long)]
-    pub coin: String,
+    pub asset: String,
     /// Target chain
-    #[arg(long, default_value = "mainnet")]
+    #[arg(long, default_value = "Mainnet")]
     pub chain: Chain,
     /// Number of price levels to display (default: 10)
     #[arg(long, default_value = "10")]
@@ -226,6 +253,9 @@ pub struct OrderbookCmd {
 
 impl OrderbookCmd {
     pub async fn run(self) -> anyhow::Result<()> {
+        let client = HttpClient::new(self.chain);
+        let resolved = resolve_asset_for_subscription(&client, &self.asset).await?;
+
         let core = match self.chain {
             Chain::Mainnet => hypercore::mainnet(),
             Chain::Testnet => hypercore::testnet(),
@@ -233,10 +263,10 @@ impl OrderbookCmd {
 
         let mut ws = core.websocket();
         ws.subscribe(Subscription::L2Book {
-            coin: self.coin.clone(),
+            coin: resolved.coin.clone(),
         });
 
-        eprintln!("Subscribing to {} orderbook...", self.coin);
+        eprintln!("Subscribing to {} orderbook...", self.asset);
 
         while let Some(event) = ws.next().await {
             match event {
@@ -301,7 +331,7 @@ pub struct CandlesCmd {
     #[arg(long, default_value = "1m")]
     pub interval: String,
     /// Target chain
-    #[arg(long, default_value = "mainnet")]
+    #[arg(long, default_value = "Mainnet")]
     pub chain: Chain,
     /// Output format
     #[arg(long, default_value = "pretty")]
@@ -384,7 +414,7 @@ pub struct AllMidsCmd {
     #[arg(long)]
     pub filter: Option<String>,
     /// Target chain
-    #[arg(long, default_value = "mainnet")]
+    #[arg(long, default_value = "Mainnet")]
     pub chain: Chain,
     /// Output format
     #[arg(long, default_value = "pretty")]
@@ -466,7 +496,7 @@ pub struct OrderUpdatesCmd {
     #[arg(long)]
     pub user: Address,
     /// Target chain
-    #[arg(long, default_value = "mainnet")]
+    #[arg(long, default_value = "Mainnet")]
     pub chain: Chain,
     /// Output format
     #[arg(long, default_value = "pretty")]
@@ -534,7 +564,7 @@ pub struct FillsCmd {
     #[arg(long)]
     pub user: Address,
     /// Target chain
-    #[arg(long, default_value = "mainnet")]
+    #[arg(long, default_value = "Mainnet")]
     pub chain: Chain,
     /// Output format
     #[arg(long, default_value = "pretty")]

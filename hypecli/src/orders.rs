@@ -16,12 +16,12 @@ use alloy::primitives::B128;
 use clap::{Args, Subcommand, ValueEnum};
 use hypersdk::hypercore::{
     BatchCancel, BatchCancelCloid, BatchOrder, Cancel, CancelByCloid, Cloid, HttpClient,
-    OrderGrouping, OrderRequest, OrderTypePlacement, PerpMarket, SpotMarket, TimeInForce,
+    OrderGrouping, OrderRequest, OrderTypePlacement, TimeInForce,
 };
 use rust_decimal::Decimal;
 
 use crate::SignerArgs;
-use crate::utils::find_signer_sync;
+use crate::utils::{find_signer_sync, resolve_asset};
 
 /// Order management commands.
 #[derive(Subcommand)]
@@ -377,105 +377,6 @@ impl CancelOrderCmd {
 
         Ok(())
     }
-}
-
-/// Parsed asset specification.
-enum AssetSpec<'a> {
-    /// Perpetual on Hyperliquid DEX (e.g., "BTC")
-    Perp(&'a str),
-    /// Spot market (e.g., "PURR/USDC")
-    Spot(&'a str, &'a str),
-    /// Perpetual on HIP3 DEX (e.g., "xyz:BTC")
-    Hip3Perp(&'a str, &'a str),
-}
-
-/// Parse an asset name string into an AssetSpec.
-///
-/// Formats:
-/// - "BTC" → Perp("BTC")
-/// - "PURR/USDC" → Spot("PURR", "USDC")
-/// - "xyz:BTC" → Hip3Perp("xyz", "BTC")
-fn parse_asset_spec(asset: &str) -> anyhow::Result<AssetSpec<'_>> {
-    if let Some((base, quote)) = asset.split_once('/') {
-        // Spot market: BASE/QUOTE
-        Ok(AssetSpec::Spot(base, quote))
-    } else if let Some((dex, symbol)) = asset.split_once(':') {
-        // HIP3 DEX: dex:SYMBOL
-        Ok(AssetSpec::Hip3Perp(dex, symbol))
-    } else {
-        // Default: Hyperliquid perp
-        Ok(AssetSpec::Perp(asset))
-    }
-}
-
-/// Resolve an asset name to its index.
-///
-/// This queries the appropriate market data based on the asset format
-/// and returns the asset index for use in API calls.
-async fn resolve_asset(client: &HttpClient, asset: &str) -> anyhow::Result<usize> {
-    let spec = parse_asset_spec(asset)?;
-
-    match spec {
-        AssetSpec::Perp(symbol) => {
-            let perps = client.perps().await?;
-            find_perp_index(&perps, symbol, None)
-        }
-        AssetSpec::Spot(base, quote) => {
-            let spots = client.spot().await?;
-            find_spot_index(&spots, base, quote)
-        }
-        AssetSpec::Hip3Perp(dex_name, symbol) => {
-            // First get the DEX
-            let dexs = client.perp_dexs().await?;
-            let dex = dexs
-                .iter()
-                .find(|d| d.name().eq_ignore_ascii_case(dex_name))
-                .ok_or_else(|| anyhow::anyhow!("HIP3 DEX '{}' not found", dex_name))?;
-
-            // Then get perps from that DEX
-            let perps = client.perps_from(dex.clone()).await?;
-            find_perp_index(&perps, symbol, Some(dex_name))
-        }
-    }
-}
-
-/// Find a perpetual market index by symbol.
-fn find_perp_index(
-    perps: &[PerpMarket],
-    symbol: &str,
-    dex_name: Option<&str>,
-) -> anyhow::Result<usize> {
-    perps
-        .iter()
-        .find(|p| p.name.eq_ignore_ascii_case(symbol))
-        .map(|p| p.index)
-        .ok_or_else(|| {
-            let dex_desc = dex_name
-                .map(|d| format!(" on {} DEX", d))
-                .unwrap_or_default();
-            anyhow::anyhow!(
-                "Perpetual market '{}'{} not found. Use 'hypecli perps' to list available markets.",
-                symbol,
-                dex_desc
-            )
-        })
-}
-
-/// Find a spot market index by base and quote symbols.
-fn find_spot_index(spots: &[SpotMarket], base: &str, quote: &str) -> anyhow::Result<usize> {
-    spots
-        .iter()
-        .find(|s| {
-            s.base().name.eq_ignore_ascii_case(base) && s.quote().name.eq_ignore_ascii_case(quote)
-        })
-        .map(|s| s.index)
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "Spot market '{}/{}' not found. Use 'hypecli spot' to list available markets.",
-                base,
-                quote
-            )
-        })
 }
 
 /// Parse an optional CLOID string into a B128.
