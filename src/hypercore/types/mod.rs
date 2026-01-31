@@ -1440,7 +1440,7 @@ impl std::str::FromStr for AssetTarget {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match s {
-            "" => Self::Perp,
+            "" | "perp" => Self::Perp,
             "spot" => Self::Spot,
             dex => Self::Dex(dex.to_string()),
         })
