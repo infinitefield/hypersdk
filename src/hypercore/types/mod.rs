@@ -76,7 +76,7 @@ use alloy::{
 };
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use serde_with::serde_as;
+use serde_with::{DisplayFromStr, serde_as};
 
 use crate::hypercore::{Chain, Cloid, OidOrCloid, SpotToken};
 
@@ -1425,6 +1425,28 @@ impl SpotSend {
     }
 }
 
+#[derive(Debug, Clone, derive_more::Display)]
+pub enum AssetTarget {
+    #[display("")]
+    Perp,
+    #[display("spot")]
+    Spot,
+    #[display("{_0}")]
+    Dex(String),
+}
+
+impl std::str::FromStr for AssetTarget {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "" => Self::Perp,
+            "spot" => Self::Spot,
+            dex => Self::Dex(dex.to_string()),
+        })
+    }
+}
+
 /// Send asset between accounts or DEXes (inner data).
 ///
 /// This is the core data structure for sending assets across different contexts
@@ -1432,14 +1454,17 @@ impl SpotSend {
 /// use the `into_action()` method to convert it to a `SendAssetAction`.
 ///
 /// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#send-asset>
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SendAsset {
     /// The destination address.
     pub destination: Address,
-    /// Source DEX, can be empty
-    pub source_dex: String,
+    /// Source DEX, for
+    #[serde_as(as = "DisplayFromStr")]
+    pub source_dex: AssetTarget,
     /// Destiation DEX, can be empty
-    pub destination_dex: String,
+    #[serde_as(as = "DisplayFromStr")]
+    pub destination_dex: AssetTarget,
     /// Token
     pub token: SendToken,
     /// The amount.
@@ -1479,8 +1504,8 @@ impl SendAsset {
             signature_chain_id: chain.arbitrum_id().to_owned(),
             hyperliquid_chain: chain,
             destination: self.destination,
-            source_dex: self.source_dex,
-            destination_dex: self.destination_dex,
+            source_dex: self.source_dex.to_string(),
+            destination_dex: self.destination_dex.to_string(),
             token: self.token.to_string(),
             amount: self.amount,
             from_sub_account: self.from_sub_account,

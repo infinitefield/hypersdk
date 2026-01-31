@@ -54,7 +54,7 @@ use rust_decimal::Decimal;
 use serde::Deserialize;
 use url::Url;
 
-use super::signing::*;
+use super::{AssetTarget, signing::*};
 use crate::hypercore::{
     ActionError, ApiAgent, CandleInterval, Chain, Cloid, Dex, MultiSigConfig, OidOrCloid,
     PerpMarket, Signature, SpotMarket, SpotToken,
@@ -1334,8 +1334,8 @@ impl Client {
             signer,
             SendAsset {
                 destination: signer.address(),
-                source_dex: "".into(),
-                destination_dex: "spot".into(),
+                source_dex: AssetTarget::Perp,
+                destination_dex: AssetTarget::Spot,
                 token: SendToken(token),
                 from_sub_account: "".into(),
                 amount,
@@ -1367,8 +1367,8 @@ impl Client {
             signer,
             SendAsset {
                 destination: signer.address(),
-                source_dex: "spot".into(),
-                destination_dex: "".into(),
+                source_dex: AssetTarget::Spot,
+                destination_dex: AssetTarget::Perp,
                 token: SendToken(token),
                 from_sub_account: "".into(),
                 amount,
