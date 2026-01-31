@@ -390,12 +390,7 @@ fn parse_cloid(cloid: Option<&str>) -> anyhow::Result<Cloid> {
 
 /// Parse a required CLOID string into a B128.
 fn parse_cloid_required(cloid: &str) -> anyhow::Result<B128> {
-    let cloid = cloid.strip_prefix("0x").unwrap_or(cloid);
-    let bytes = hex::decode(cloid)?;
-    if bytes.len() != 16 {
-        anyhow::bail!("CLOID must be exactly 16 bytes (32 hex characters)");
-    }
-    let mut arr = [0u8; 16];
-    arr.copy_from_slice(&bytes);
-    Ok(B128::from(arr))
+    cloid
+        .parse()
+        .map_err(|e| anyhow::anyhow!("Invalid CLOID: {}", e))
 }
