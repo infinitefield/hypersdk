@@ -9,7 +9,7 @@ use futures::{SinkExt, StreamExt};
 use hypersdk::{
     Address, Decimal,
     hypercore::{
-        self, HttpClient, NonceHandler, SendAsset, SendToken, Signature,
+        self, AssetTarget, HttpClient, NonceHandler, SendAsset, SendToken, Signature,
         api::{
             self, Action, ConvertToMultiSigUser, MultiSigAction, MultiSigPayload, SignersConfig,
         },
@@ -189,11 +189,23 @@ async fn send_asset(cmd: MultiSigSendAsset) -> anyhow::Result<()> {
 
     let nonce = NonceHandler::default().next();
 
+    let source_dex: AssetTarget = cmd
+        .source
+        .as_ref()
+        .map(|s| s.parse().unwrap_or(AssetTarget::Perp))
+        .unwrap_or(AssetTarget::Perp);
+
+    let destination_dex: AssetTarget = cmd
+        .dest
+        .as_ref()
+        .map(|s| s.parse().unwrap_or(AssetTarget::Perp))
+        .unwrap_or(AssetTarget::Perp);
+
     let action = Action::from(
         SendAsset {
             destination: cmd.to,
-            source_dex: cmd.source.clone().unwrap_or_default(),
-            destination_dex: cmd.dest.clone().unwrap_or_default(),
+            source_dex,
+            destination_dex,
             token: SendToken(token.clone()),
             amount: cmd.amount,
             from_sub_account: "".to_owned(),

@@ -3188,6 +3188,7 @@ dependencies = [
  "rpassword",
  "rust_decimal",
  "serde",
+ "serde_json",
  "tabwriter",
  "tokio",
  "tokio-util",
@@ -3275,9 +3276,7 @@ dependencies = [
 
 [[package]]
 name = "hypersdk"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "015f8c41b89f474b62f5fca7a8459477b7d59ccc1c7008ce8e672ad3ea5d268a"
+version = "0.2.2"
 dependencies = [
  "alloy",
  "anyhow",

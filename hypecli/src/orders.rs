@@ -12,19 +12,16 @@
 //! - `PURR/USDC` - PURR spot market
 //! - `xyz:BTC` - BTC perpetual on the "xyz" HIP3 DEX
 
-use std::{env::home_dir, str::FromStr};
-
 use alloy::primitives::B128;
-use anyhow::Context;
 use clap::{Args, Subcommand, ValueEnum};
 use hypersdk::hypercore::{
     BatchCancel, BatchCancelCloid, BatchOrder, Cancel, CancelByCloid, Cloid, HttpClient,
-    OrderGrouping, OrderRequest, OrderTypePlacement, PerpMarket, PrivateKeySigner, SpotMarket,
-    TimeInForce,
+    OrderGrouping, OrderRequest, OrderTypePlacement, PerpMarket, SpotMarket, TimeInForce,
 };
 use rust_decimal::Decimal;
 
 use crate::SignerArgs;
+use crate::utils::find_signer_sync;
 
 /// Order management commands.
 #[derive(Subcommand)]
@@ -124,7 +121,7 @@ pub struct LimitOrderCmd {
 impl LimitOrderCmd {
     pub async fn run(self) -> anyhow::Result<()> {
         let client = HttpClient::new(self.chain);
-        let signer = find_local_signer(&self.signer)?;
+        let signer = find_signer_sync(&self.signer)?;
 
         let asset_index = resolve_asset(&client, &self.asset).await?;
 
@@ -215,7 +212,7 @@ pub struct MarketOrderCmd {
 impl MarketOrderCmd {
     pub async fn run(self) -> anyhow::Result<()> {
         let client = HttpClient::new(self.chain);
-        let signer = find_local_signer(&self.signer)?;
+        let signer = find_signer_sync(&self.signer)?;
 
         let asset_index = resolve_asset(&client, &self.asset).await?;
 
@@ -304,7 +301,7 @@ impl CancelOrderCmd {
         }
 
         let client = HttpClient::new(self.chain);
-        let signer = find_local_signer(&self.signer)?;
+        let signer = find_signer_sync(&self.signer)?;
 
         let asset_index = resolve_asset(&client, &self.asset).await?;
 
@@ -479,36 +476,6 @@ fn find_spot_index(spots: &[SpotMarket], base: &str, quote: &str) -> anyhow::Res
                 quote
             )
         })
-}
-
-/// Find a local signer (private key or keystore) for order operations.
-///
-/// Order operations require synchronous signing (SignerSync trait), which is only
-/// supported by local signers (private key or keystore), not hardware wallets.
-fn find_local_signer(cmd: &SignerArgs) -> anyhow::Result<PrivateKeySigner> {
-    if let Some(key) = cmd.private_key.as_ref() {
-        Ok(PrivateKeySigner::from_str(key)?)
-    } else if let Some(filename) = cmd.keystore.as_ref() {
-        let home_dir = home_dir().ok_or(anyhow::anyhow!("unable to locate home dir"))?;
-        let keypath = home_dir.join(".foundry").join("keystores").join(filename);
-        anyhow::ensure!(keypath.exists(), "keystore {filename} doesn't exist");
-        let password = cmd
-            .password
-            .clone()
-            .or_else(|| {
-                rpassword::prompt_password(format!(
-                    "{} password: ",
-                    keypath.as_os_str().to_str().unwrap()
-                ))
-                .ok()
-            })
-            .ok_or(anyhow::anyhow!("keystores require a password!"))?;
-        PrivateKeySigner::decrypt_keystore(keypath, password).context("decrypt_keystore")
-    } else {
-        Err(anyhow::anyhow!(
-            "Order operations require a private key or keystore (Ledger not supported for orders)"
-        ))
-    }
 }
 
 /// Parse an optional CLOID string into a B128.

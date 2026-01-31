@@ -3,6 +3,8 @@ mod markets;
 mod morpho;
 mod multisig;
 mod orders;
+mod send;
+mod subscribe;
 mod to_multisig;
 mod utils;
 
@@ -13,6 +15,8 @@ use markets::{PerpsCmd, SpotCmd};
 use morpho::{MorphoApyCmd, MorphoPositionCmd, MorphoVaultApyCmd};
 use multisig::MultiSigCmd;
 use orders::OrderCmd;
+use send::SendCmd;
+use subscribe::SubscribeCmd;
 use to_multisig::ToMultiSigCmd;
 
 /// Main CLI structure for hypecli - A command-line interface for Hyperliquid.
@@ -51,6 +55,11 @@ enum Command {
     /// Order management (place and cancel orders)
     #[command(subcommand)]
     Order(OrderCmd),
+    /// Subscribe to real-time WebSocket data feeds
+    #[command(subcommand)]
+    Subscribe(SubscribeCmd),
+    /// Send assets between accounts, DEXes, or subaccounts
+    Send(SendCmd),
 }
 
 impl Command {
@@ -65,6 +74,8 @@ impl Command {
             Self::Multisig(cmd) => cmd.run().await,
             Self::ToMultisig(cmd) => cmd.run().await,
             Self::Order(cmd) => cmd.run().await,
+            Self::Subscribe(cmd) => cmd.run().await,
+            Self::Send(cmd) => cmd.run().await,
         }
     }
 }
@@ -85,7 +96,7 @@ pub struct SignerArgs {
     #[arg(long)]
     pub password: Option<String>,
     /// Target chain for the operation.
-    #[arg(long)]
+    #[arg(long, default_value = "mainnet")]
     pub chain: Chain,
 }
 
@@ -329,6 +340,51 @@ Workflow 5: Using Foundry Keystore
     --price 45000 \
     --size 0.01
   # Password will be prompted interactively
+
+SUBSCRIBE COMMANDS (Real-time WebSocket Data)
+---------------------------------------------
+
+Subscribe to Trades:
+  hypecli subscribe trades --coin BTC
+  hypecli subscribe trades --coin ETH --format json
+
+Subscribe to Best Bid/Offer (BBO):
+  hypecli subscribe bbo --coin BTC
+  hypecli subscribe bbo --coin ETH --format json
+
+Subscribe to Order Book (L2):
+  hypecli subscribe orderbook --coin BTC
+  hypecli subscribe orderbook --coin BTC --depth 20
+
+Subscribe to Candles (OHLCV):
+  hypecli subscribe candles --coin BTC --interval 1m
+  hypecli subscribe candles --coin ETH --interval 15m --format json
+
+  Available intervals: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 8h, 12h, 1d, 3d, 1w, 1M
+
+Subscribe to All Mid Prices:
+  hypecli subscribe all-mids
+  hypecli subscribe all-mids --filter BTC,ETH
+  hypecli subscribe all-mids --dex hyperliquid
+
+Subscribe to Order Updates (requires user address):
+  hypecli subscribe order-updates --user 0x1234...
+
+Subscribe to Fills (requires user address):
+  hypecli subscribe fills --user 0x1234...
+
+Common Options:
+  --chain <mainnet|testnet>  Target chain (default: mainnet)
+  --format <pretty|json>     Output format (default: pretty)
+
+Workflow 6: Monitor BTC Trades
+  hypecli subscribe trades --coin BTC
+
+Workflow 7: Monitor Order Book Depth
+  hypecli subscribe orderbook --coin ETH --depth 10
+
+Workflow 8: Stream Candle Data as JSON
+  hypecli subscribe candles --coin BTC --interval 5m --format json
 
 ERROR HANDLING
 --------------

@@ -70,6 +70,51 @@ pub async fn start_gossip(
     Ok((endpoint, ticket))
 }
 
+/// Finds and loads a synchronous signer (private key or keystore only).
+///
+/// This is for operations that require `SignerSync` trait, such as `send_asset`.
+/// Ledger hardware wallets are not supported for sync operations.
+///
+/// # Arguments
+///
+/// * `cmd` - Command parameters containing credentials
+///
+/// # Returns
+///
+/// A `PrivateKeySigner` that implements `SignerSync`.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - Private key is invalid
+/// - Keystore file not found or password incorrect
+/// - No private key or keystore provided
+pub fn find_signer_sync(cmd: &SignerArgs) -> anyhow::Result<PrivateKeySigner> {
+    if let Some(key) = cmd.private_key.as_ref() {
+        Ok(PrivateKeySigner::from_str(key)?)
+    } else if let Some(filename) = cmd.keystore.as_ref() {
+        let home_dir = home_dir().ok_or(anyhow::anyhow!("unable to locate home dir"))?;
+        let keypath = home_dir.join(".foundry").join("keystores").join(filename);
+        anyhow::ensure!(keypath.exists(), "keystore {filename} doesn't exist");
+        let password = cmd
+            .password
+            .clone()
+            .or_else(|| {
+                rpassword::prompt_password(format!(
+                    "{} password: ",
+                    keypath.as_os_str().to_str().unwrap()
+                ))
+                .ok()
+            })
+            .ok_or(anyhow::anyhow!("keystores require a password!"))?;
+        PrivateKeySigner::decrypt_keystore(keypath, password).context("decrypt_keystore")
+    } else {
+        Err(anyhow::anyhow!(
+            "This operation requires a private key or keystore (Ledger not supported)"
+        ))
+    }
+}
+
 /// Finds and loads a signer from various sources.
 ///
 /// Attempts to load a signer in the following priority order:
