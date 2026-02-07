@@ -54,7 +54,7 @@ use rust_decimal::Decimal;
 use serde::Deserialize;
 use url::Url;
 
-use super::signing::*;
+use super::{AssetTarget, signing::*};
 use crate::hypercore::{
     ActionError, ApiAgent, CandleInterval, Chain, Cloid, Dex, MultiSigConfig, OidOrCloid,
     PerpMarket, Signature, SpotMarket, SpotToken,
@@ -324,7 +324,7 @@ impl Client {
     /// # async fn example() -> anyhow::Result<()> {
     /// let client = hypercore::mainnet();
     /// let user: Address = "0x...".parse()?;
-    /// let orders = client.open_orders(user).await?;
+    /// let orders = client.open_orders(user, None).await?;
     ///
     /// for order in orders {
     ///     println!("{} {} @ {}", order.side, order.sz, order.limit_px);
@@ -332,14 +332,21 @@ impl Client {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn open_orders(&self, user: Address) -> Result<Vec<BasicOrder>> {
+    pub async fn open_orders(
+        &self,
+        user: Address,
+        dex_name: Option<String>,
+    ) -> Result<Vec<BasicOrder>> {
         let mut api_url = self.base_url.clone();
         api_url.set_path("/info");
 
         let data = self
             .http_client
             .post(api_url)
-            .json(&InfoRequest::FrontendOpenOrders { user })
+            .json(&InfoRequest::FrontendOpenOrders {
+                user,
+                dex: dex_name,
+            })
             .send()
             .await?
             .json()
@@ -359,7 +366,7 @@ impl Client {
     ///
     /// # async fn example() -> anyhow::Result<()> {
     /// let client = hypercore::mainnet();
-    /// let mids = client.all_mids().await?;
+    /// let mids = client.all_mids(None).await?;
     ///
     /// for (market, price) in mids {
     ///     println!("{}: {}", market, price);
@@ -576,7 +583,7 @@ impl Client {
     /// # async fn example() -> anyhow::Result<()> {
     /// let client = hypercore::mainnet();
     /// let user: Address = "0x...".parse()?;
-    /// let state = client.clearinghouse_state(user).await?;
+    /// let state = client.clearinghouse_state(user, None).await?;
     ///
     /// // Check account value and withdrawable amount
     /// println!("Account value: {}", state.margin_summary.account_value);
@@ -600,14 +607,21 @@ impl Client {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn clearinghouse_state(&self, user: Address) -> Result<ClearinghouseState> {
+    pub async fn clearinghouse_state(
+        &self,
+        user: Address,
+        dex_name: Option<String>,
+    ) -> Result<ClearinghouseState> {
         let mut api_url = self.base_url.clone();
         api_url.set_path("/info");
 
         let data = self
             .http_client
             .post(api_url)
-            .json(&InfoRequest::ClearinghouseState { user })
+            .json(&InfoRequest::ClearinghouseState {
+                user,
+                dex: dex_name,
+            })
             .send()
             .await?
             .json()
@@ -618,7 +632,7 @@ impl Client {
     /// Retrieves historical funding rates for a perpetual market.
     ///
     /// Returns funding rate snapshots for the specified coin within the given time range.
-    /// Funding rates are typically applied every 8 hours.
+    /// Hyperliquid pays funding every hour.
     ///
     /// # Parameters
     ///
@@ -1104,7 +1118,7 @@ impl Client {
             })?;
 
             match resp {
-                Response::Ok(OkResponse::Order { statuses }) => Ok(statuses),
+                Response::Ok(OkResponse::Cancel { statuses }) => Ok(statuses),
                 Response::Err(err) => Err(ActionError { ids: cloids, err }),
                 _ => Err(ActionError {
                     ids: cloids,
@@ -1320,8 +1334,8 @@ impl Client {
             signer,
             SendAsset {
                 destination: signer.address(),
-                source_dex: "".into(),
-                destination_dex: "spot".into(),
+                source_dex: AssetTarget::Perp,
+                destination_dex: AssetTarget::Spot,
                 token: SendToken(token),
                 from_sub_account: "".into(),
                 amount,
@@ -1353,8 +1367,8 @@ impl Client {
             signer,
             SendAsset {
                 destination: signer.address(),
-                source_dex: "spot".into(),
-                destination_dex: "".into(),
+                source_dex: AssetTarget::Spot,
+                destination_dex: AssetTarget::Perp,
                 token: SendToken(token),
                 from_sub_account: "".into(),
                 amount,

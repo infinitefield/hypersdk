@@ -10,8 +10,8 @@ async fn main() -> anyhow::Result<()> {
         let markets = client.perps_from(dex).await?;
         for market in markets {
             println!(
-                "{}\t{}\t{}\t{}",
-                market.name, market.index, market.name, market.collateral,
+                "{}\t{}\t{}\t{}\t{}",
+                market.name, market.index, market.name, market.collateral, market.growth_mode
             );
         }
     }

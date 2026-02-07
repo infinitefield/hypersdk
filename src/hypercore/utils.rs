@@ -18,6 +18,38 @@ use crate::hypercore::Chain;
 
 const HYPERLIQUID_EIP_PREFIX: &str = "HyperliquidTransaction:";
 
+/// Serde module for normalized decimal serialization.
+///
+/// Normalizes decimals by removing trailing zeros before serialization.
+/// This matches the Python SDK's `float_to_wire` behavior which uses
+/// `Decimal().normalize()` to ensure consistent MessagePack hashing.
+///
+/// Example: `dec!(10.0)` serializes as `"10"`, not `"10.0"`
+pub(super) mod decimal_normalized {
+    use rust_decimal::Decimal;
+    use serde::{Deserialize, Deserializer, Serializer, de};
+    use std::str::FromStr;
+
+    pub fn serialize<S>(value: &Decimal, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // normalize() removes trailing zeros: 10.0 -> 10, 0.100 -> 0.1
+        let normalized = value.normalize();
+        serializer.serialize_str(&normalized.to_string())
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Decimal, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Decimal::from_str(&s)
+            .map(|d| d.normalize())
+            .map_err(de::Error::custom)
+    }
+}
+
 /// Serializes a cloid (B128) as a hex string.
 pub(super) fn serialize_cloid_as_hex<S>(value: &Cloid, serializer: S) -> Result<S::Ok, S::Error>
 where

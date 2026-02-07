@@ -6,6 +6,8 @@ A comprehensive Rust SDK for interacting with the [Hyperliquid](https://app.hype
 [![Documentation](https://docs.rs/hypersdk/badge.svg)](https://docs.rs/hypersdk)
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-blue.svg)](https://opensource.org/licenses/MPL-2.0)
 
+> **AI Agents**: Install `hypecli` and check the [`skills/`](skills/) folder for guides on payments, trading, and more. No Rust toolchain required.
+
 ## Overview
 
 Hyperliquid is a high-performance decentralized exchange with two main components:

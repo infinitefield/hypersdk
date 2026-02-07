@@ -11,6 +11,12 @@ A command-line interface for interacting with the [Hyperliquid](https://app.hype
 
 ## Installation
 
+### Quick Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/infinitefield/hypersdk/main/hypecli/install.sh | sh
+```
+
 ### From crates.io
 
 ```bash
@@ -30,6 +36,61 @@ cargo install --path .
 ```bash
 hypecli --help
 ```
+
+### Account Management
+
+Create and manage Foundry-compatible keystores for signing transactions.
+
+```bash
+# Create a new keystore with a random private key
+hypecli account create --name my-wallet
+# You'll be prompted to enter and confirm a password
+
+# List all available keystores
+hypecli account list
+```
+
+Keystores are stored in `~/.foundry/keystores/` and are compatible with Foundry's `cast` tool. Use the keystore name with `--keystore` in other commands.
+
+### List HIP-3 DEXes
+
+List all available HIP-3 perpetual DEXes.
+
+```bash
+hypecli dexes
+```
+
+### List Perpetual Markets
+
+List perpetual markets from Hyperliquid or a specific HIP-3 DEX.
+
+```bash
+# List all Hyperliquid perpetual markets
+hypecli perps
+
+# List perpetual markets from a specific HIP-3 DEX
+hypecli perps --dex xyz
+```
+
+### Query Balances
+
+Query all balances (spot, perp, and DEX) for a user address.
+
+```bash
+# Pretty format (default)
+hypecli balance 0x1234567890abcdef1234567890abcdef12345678
+
+# Table format for terminal viewing
+hypecli balance 0x1234... --format table
+
+# JSON format for programmatic consumption
+hypecli balance 0x1234... --format json
+
+# Skip querying HIP-3 DEX balances (only show spot and perp)
+hypecli balance 0x1234... --skip-hip3
+```
+
+Shows spot balances, perp account details (account value, margin used, withdrawable, positions), and all HIP-3 DEX balances. Use `--skip-hip3` to skip DEX queries.
 
 ### Features
 

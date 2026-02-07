@@ -17,6 +17,7 @@ use hypersdk::hypercore;
 ///
 /// ```bash
 /// hypecli perps
+/// hypecli perps --dex xyz
 /// ```
 ///
 /// # Output
@@ -29,12 +30,32 @@ use hypersdk::hypercore;
 /// - `max leverage`: Maximum allowed leverage
 /// - `isolated margin`: Maximum isolated margin percentage
 #[derive(Args)]
-pub struct PerpsCmd;
+pub struct PerpsCmd {
+    /// Query markets from a specific HIP-3 DEX.
+    #[arg(long)]
+    pub dex: Option<String>,
+}
 
 impl PerpsCmd {
     pub async fn run(self) -> anyhow::Result<()> {
         let core = hypercore::mainnet();
-        let perps = core.perps().await?;
+
+        let perps = if let Some(dex_name) = &self.dex {
+            let dexes = core.perp_dexs().await?;
+            let dex = dexes
+                .iter()
+                .find(|d| d.name().eq_ignore_ascii_case(dex_name))
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "HIP-3 DEX '{}' not found. Use 'hypecli dexes' to list available DEXes.",
+                        dex_name
+                    )
+                })?;
+            core.perps_from(dex.clone()).await?
+        } else {
+            core.perps().await?
+        };
+
         let mut writer = tabwriter::TabWriter::new(stdout());
 
         let _ = writeln!(
@@ -55,6 +76,39 @@ impl PerpsCmd {
         }
 
         let _ = writer.flush();
+
+        Ok(())
+    }
+}
+
+/// Command to list all HIP-3 perpetual DEXes.
+///
+/// Queries the Hyperliquid API for available HIP-3 DEXes and displays
+/// their names and indices.
+///
+/// # Example
+///
+/// ```bash
+/// hypecli dexes
+/// ```
+///
+/// # Output
+///
+/// Displays a table with columns:
+/// - `name`: DEX name (e.g., xyz)
+/// - `index`: DEX index number
+#[derive(Args)]
+pub struct DexesCmd;
+
+impl DexesCmd {
+    pub async fn run(self) -> anyhow::Result<()> {
+        let core = hypercore::mainnet();
+        let dexes = core.perp_dexs().await?;
+
+        println!("name");
+        for dex in dexes {
+            println!("{}", dex.name());
+        }
 
         Ok(())
     }

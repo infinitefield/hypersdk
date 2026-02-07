@@ -717,7 +717,7 @@ fn build_perp_price_ticks(sz_decimals: i64) -> PriceTick {
 /// ```
 #[derive(Debug, Clone)]
 pub struct PerpMarket {
-    /// Market name (e.g., "BTC", "ETH")
+    /// Market name (e.g., "BTC", "ETH", "xyz:EURC")
     pub name: String,
     /// Market index used in API calls
     pub index: usize,
@@ -731,6 +731,8 @@ pub struct PerpMarket {
     pub isolated_margin: bool,
     /// Margin mode for this market
     pub margin_mode: Option<MarginMode>,
+    /// Whether growth mode is enabled for this market
+    pub growth_mode: bool,
     /// Price tick configuration for valid price increments
     pub table: PriceTick,
 }
@@ -1385,6 +1387,7 @@ pub async fn perp_markets(
                 collateral: collateral.clone(),
                 isolated_margin: perp.only_isolated,
                 margin_mode: perp.margin_mode,
+                growth_mode: perp.growth_mode,
                 table: build_perp_price_ticks(perp.sz_decimals),
             }
         })
@@ -1424,7 +1427,24 @@ struct PerpUniverseItem {
     only_isolated: bool,
     margin_mode: Option<MarginMode>,
     sz_decimals: i64,
+    #[serde(default, deserialize_with = "deserialize_growth_mode")]
+    growth_mode: bool,
     // margin_table_id: u64,
+}
+
+fn deserialize_growth_mode<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    match s.as_str() {
+        "enabled" => Ok(true),
+        "disabled" => Ok(false),
+        _ => Err(serde::de::Error::custom(format!(
+            "invalid growth_mode value: {}",
+            s
+        ))),
+    }
 }
 
 #[derive(Debug, Copy, Clone, Deserialize)]
@@ -1576,7 +1596,7 @@ mod tests {
         let client = hypercore::mainnet();
         // Use a known address with positions (Hyperliquid vault)
         let user = address!("0x162cc7c861ebd0c06b3d72319201150482518185");
-        let state = client.clearinghouse_state(user).await.unwrap();
+        let state = client.clearinghouse_state(user, None).await.unwrap();
 
         // Verify structure is returned correctly
         assert!(state.time > 0);
@@ -1608,7 +1628,7 @@ mod tests {
         let client = hypercore::mainnet();
         let user = address!("0xdfc24b077bc1425ad1dea75bcb6f8158e10df303");
         // Should return a list (possibly empty) without error
-        let _orders = client.open_orders(user).await.unwrap();
+        let _orders = client.open_orders(user, None).await.unwrap();
     }
 
     #[tokio::test]

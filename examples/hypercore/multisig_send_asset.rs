@@ -7,7 +7,7 @@ use clap::Parser;
 use hypersdk::{
     Address,
     hypercore::{
-        self as hypercore, Chain, PrivateKeySigner,
+        self as hypercore, AssetTarget, Chain, PrivateKeySigner,
         types::{SendAsset, SendToken},
     },
 };
@@ -68,9 +68,9 @@ async fn main() -> anyhow::Result<()> {
         // Recipient address
         destination: args.to,
         // Source DEX/balance ("" = perp, "spot" = spot)
-        source_dex: "spot".to_owned(),
+        source_dex: AssetTarget::Spot,
         // Destination DEX/balance ("" = perp, "spot" = spot)
-        destination_dex: "spot".to_owned(),
+        destination_dex: AssetTarget::Spot,
         // Token to transfer
         token: SendToken(token.clone()),
         // Subaccount to send from (empty for main account)
