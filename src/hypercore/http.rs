@@ -48,7 +48,7 @@ use alloy::{
     primitives::Address,
     signers::{Signer, SignerSync},
 };
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::Deserialize;
@@ -1594,18 +1594,21 @@ impl Client {
             let req = res?;
             let res = http_client
                 .post(url)
-                .timeout(Duration::from_secs(5))
-                // .header(header::CONTENT_TYPE, "application/json")
-                // .body(text)
                 .json(&req)
                 .send()
-                .await?
-                .json()
-                // .text()
                 .await?;
-            // println!("<< {res}");
-            // Ok(serde_json::from_str(&res).unwrap())
-            Ok(res)
+
+            let status = res.status();
+            let text = res.text().await?;
+            
+            if !status.is_success() {
+                return Err(anyhow!("HTTP {status} body={text}"));
+            }
+            
+            let parsed = serde_json::from_str(&text)
+                .map_err(|e| anyhow!("decode failed: {e}; body={text}"))?;
+            
+            Ok(parsed)
         }
     }
 
