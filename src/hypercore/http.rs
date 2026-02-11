@@ -48,7 +48,7 @@ use alloy::{
     primitives::Address,
     signers::{Signer, SignerSync},
 };
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::Deserialize;
