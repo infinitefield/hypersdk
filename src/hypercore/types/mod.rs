@@ -1761,7 +1761,7 @@ pub struct BatchModify {
 #[serde(rename_all = "camelCase")]
 pub struct Modify {
     /// Order identifier – either a numeric `oid` or a client-supplied `cloid`.
-    #[serde(with = "either::serde_untagged")]
+    #[serde(with = "super::utils::oid_or_cloid")]
     pub oid: OidOrCloid,
     /// New order parameters that will replace the existing order.
     pub order: OrderRequest,
@@ -2756,7 +2756,7 @@ pub(super) enum InfoRequest {
     },
     OrderStatus {
         user: Address,
-        #[serde(with = "either::serde_untagged")]
+        #[serde(with = "super::utils::oid_or_cloid")]
         oid: OidOrCloid,
     },
     SpotClearinghouseState {

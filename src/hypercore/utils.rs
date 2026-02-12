@@ -50,6 +50,55 @@ pub(super) mod decimal_normalized {
     }
 }
 
+/// Serde module for `OidOrCloid` that ensures the `Right(Cloid)` variant is always
+/// serialized as a hex string (consistent across both JSON and MessagePack formats).
+///
+/// `either::serde_untagged` delegates to `B128`'s default impl, which uses raw bytes
+/// in non-human-readable formats like MessagePack. Hyperliquid's server reconstructs
+/// the hash from the JSON representation (hex string), so both sides must agree on
+/// hex-string encoding for the hash to verify correctly.
+pub(super) mod oid_or_cloid {
+    use either::Either;
+    use serde::{Deserializer, Serializer, de};
+
+    use super::Cloid;
+
+    pub fn serialize<S>(value: &Either<u64, Cloid>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match value {
+            Either::Left(oid) => serializer.serialize_u64(*oid),
+            Either::Right(cloid) => serializer.serialize_str(&format!("{:#x}", cloid)),
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Either<u64, Cloid>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct Visitor;
+
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = Either<u64, Cloid>;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a u64 oid or a hex string cloid")
+            }
+
+            fn visit_u64<E: de::Error>(self, v: u64) -> Result<Self::Value, E> {
+                Ok(Either::Left(v))
+            }
+
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
+                v.parse::<Cloid>().map(Either::Right).map_err(de::Error::custom)
+            }
+        }
+
+        deserializer.deserialize_any(Visitor)
+    }
+}
+
 /// Serializes a cloid (B128) as a hex string.
 pub(super) fn serialize_cloid_as_hex<S>(value: &Cloid, serializer: S) -> Result<S::Ok, S::Error>
 where
