@@ -75,6 +75,16 @@ pub enum Action {
     CancelByCloid(BatchCancelCloid),
     /// Schedule cancellation of all orders.
     ScheduleCancel(ScheduleCancel),
+    /// Place a TWAP order.
+    TwapOrder(TwapOrderAction),
+    /// Cancel a TWAP order.
+    TwapCancel(TwapCancelAction),
+    /// Update cross or isolated leverage for an asset.
+    UpdateLeverage(UpdateLeverageAction),
+    /// Top up isolated-only margin to a target leverage.
+    TopUpIsolatedOnlyMargin(TopUpIsolatedOnlyMarginAction),
+    /// Deposit to or withdraw from a vault.
+    VaultTransfer(VaultTransferAction),
     /// Core USDC transfer.
     UsdSend(UsdSendAction),
     /// Send asset.
@@ -164,8 +174,79 @@ pub enum Response {
 pub enum OkResponse {
     Order { statuses: Vec<OrderResponseStatus> },
     Cancel { statuses: Vec<OrderResponseStatus> },
+    TwapOrder { status: TwapOrderStatus },
+    TwapCancel { status: TwapCancelStatus },
     // should be ok?
     Default,
+}
+
+/// TWAP running state for `twapOrder` responses.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TwapRunning {
+    pub twap_id: u64,
+}
+
+/// `twapOrder` status payload.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum TwapOrderStatus {
+    Running { running: TwapRunning },
+    Error { error: String },
+    Unknown(serde_json::Value),
+}
+
+impl TwapOrderStatus {
+    /// Returns the TWAP id for a running TWAP order.
+    #[must_use]
+    pub fn twap_id(&self) -> Option<u64> {
+        match self {
+            TwapOrderStatus::Running { running } => Some(running.twap_id),
+            _ => None,
+        }
+    }
+
+    /// Returns the error string, if this status represents an error.
+    #[must_use]
+    pub fn error(&self) -> Option<&str> {
+        match self {
+            TwapOrderStatus::Error { error } => Some(error),
+            _ => None,
+        }
+    }
+}
+
+/// Successful TWAP cancel marker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TwapCancelSuccess {
+    Success,
+}
+
+/// `twapCancel` status payload.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum TwapCancelStatus {
+    Success(TwapCancelSuccess),
+    Error { error: String },
+    Unknown(serde_json::Value),
+}
+
+impl TwapCancelStatus {
+    /// Returns whether the TWAP cancel was successful.
+    #[must_use]
+    pub fn is_success(&self) -> bool {
+        matches!(self, TwapCancelStatus::Success(TwapCancelSuccess::Success))
+    }
+
+    /// Returns the error string, if this status represents an error.
+    #[must_use]
+    pub fn error(&self) -> Option<&str> {
+        match self {
+            TwapCancelStatus::Error { error } => Some(error),
+            _ => None,
+        }
+    }
 }
 
 impl Action {
@@ -191,6 +272,11 @@ impl Action {
             | Action::Cancel(_)
             | Action::CancelByCloid(_)
             | Action::ScheduleCancel(_)
+            | Action::TwapOrder(_)
+            | Action::TwapCancel(_)
+            | Action::UpdateLeverage(_)
+            | Action::TopUpIsolatedOnlyMargin(_)
+            | Action::VaultTransfer(_)
             | Action::EvmUserModify { .. }
             | Action::UpdateIsolatedMargin(_)
             | Action::Noop => {
@@ -281,6 +367,11 @@ impl Action {
             | Action::Cancel(_)
             | Action::CancelByCloid(_)
             | Action::ScheduleCancel(_)
+            | Action::TwapOrder(_)
+            | Action::TwapCancel(_)
+            | Action::UpdateLeverage(_)
+            | Action::TopUpIsolatedOnlyMargin(_)
+            | Action::VaultTransfer(_)
             | Action::EvmUserModify { .. }
             | Action::UpdateIsolatedMargin(_)
             | Action::Noop => {
@@ -369,6 +460,11 @@ impl Action {
             | Action::Cancel(_)
             | Action::CancelByCloid(_)
             | Action::ScheduleCancel(_)
+            | Action::TwapOrder(_)
+            | Action::TwapCancel(_)
+            | Action::UpdateLeverage(_)
+            | Action::TopUpIsolatedOnlyMargin(_)
+            | Action::VaultTransfer(_)
             | Action::EvmUserModify { .. }
             | Action::UpdateIsolatedMargin(_)
             | Action::Noop => {
@@ -662,6 +758,96 @@ pub struct UpdateIsolatedMargin {
     pub ntli: u64,
 }
 
+/// Place a TWAP order.
+///
+/// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#place-a-twap-order>
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TwapOrderAction {
+    pub twap: TwapOrder,
+}
+
+/// TWAP order payload.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TwapOrder {
+    /// Asset index.
+    #[serde(rename = "a")]
+    pub asset: usize,
+    /// `true` for buy TWAP, `false` for sell TWAP.
+    #[serde(rename = "b")]
+    pub is_buy: bool,
+    /// TWAP total size.
+    #[serde(rename = "s", with = "crate::hypercore::utils::decimal_normalized")]
+    pub sz: Decimal,
+    /// Whether this TWAP is reduce-only.
+    #[serde(rename = "r")]
+    pub reduce_only: bool,
+    /// Duration in minutes.
+    #[serde(rename = "m")]
+    pub minutes: u64,
+    /// Whether child slices should be randomized.
+    #[serde(rename = "t")]
+    pub randomize: bool,
+}
+
+/// Cancel a TWAP order.
+///
+/// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#cancel-a-twap-order>
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TwapCancelAction {
+    /// Asset index.
+    #[serde(rename = "a")]
+    pub asset: usize,
+    /// TWAP identifier.
+    #[serde(rename = "t")]
+    pub twap_id: u64,
+}
+
+/// Update cross or isolated leverage for an asset.
+///
+/// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#update-leverage>
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateLeverageAction {
+    /// Asset index of the position.
+    pub asset: usize,
+    /// `true` for cross leverage, `false` for isolated leverage.
+    pub is_cross: bool,
+    /// Target leverage.
+    pub leverage: u32,
+}
+
+/// Top up isolated-only margin to a target leverage.
+///
+/// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#update-isolated-margin>
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TopUpIsolatedOnlyMarginAction {
+    /// Asset index of the position.
+    pub asset: usize,
+    /// Target leverage represented as a decimal string.
+    #[serde(with = "rust_decimal::serde::str")]
+    pub leverage: Decimal,
+}
+
+/// Deposit to or withdraw from a vault.
+///
+/// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#deposit-or-withdraw-from-a-vault>
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultTransferAction {
+    /// Target vault address.
+    #[serde(
+        serialize_with = "crate::hypercore::utils::serialize_address_as_hex",
+        deserialize_with = "crate::hypercore::utils::deserialize_address_from_hex"
+    )]
+    pub vault_address: Address,
+    /// `true` for deposit into vault, `false` for withdrawal.
+    pub is_deposit: bool,
+    /// USD amount (integer representation expected by exchange action).
+    pub usd: u64,
+}
+
 /// Multi-signature action payload.
 ///
 /// Contains the multisig user address, outer signer, and the inner action to execute.
@@ -826,6 +1012,7 @@ pub struct MultiSigAction {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::address;
+    use rust_decimal::dec;
 
     use super::*;
 
@@ -845,5 +1032,142 @@ mod tests {
             address,
             address!("0x5eCb62791B22A3108367c2A2024019Ee7eA88431")
         );
+    }
+
+    #[test]
+    fn twap_order_action_serializes() {
+        let action = Action::TwapOrder(TwapOrderAction {
+            twap: TwapOrder {
+                asset: 0,
+                is_buy: true,
+                sz: dec!(1.25),
+                reduce_only: false,
+                minutes: 30,
+                randomize: true,
+            },
+        });
+
+        let value = serde_json::to_value(action).unwrap();
+        assert_eq!(value["type"], "twapOrder");
+        assert_eq!(value["twap"]["a"], 0);
+        assert_eq!(value["twap"]["b"], true);
+        assert_eq!(value["twap"]["s"], "1.25");
+        assert_eq!(value["twap"]["r"], false);
+        assert_eq!(value["twap"]["m"], 30);
+        assert_eq!(value["twap"]["t"], true);
+    }
+
+    #[test]
+    fn top_up_isolated_only_margin_serializes() {
+        let action = Action::TopUpIsolatedOnlyMargin(TopUpIsolatedOnlyMarginAction {
+            asset: 7,
+            leverage: dec!(3.5),
+        });
+        let value = serde_json::to_value(action).unwrap();
+        assert_eq!(value["type"], "topUpIsolatedOnlyMargin");
+        assert_eq!(value["asset"], 7);
+        assert_eq!(value["leverage"], "3.5");
+    }
+
+    #[test]
+    fn update_leverage_and_vault_transfer_serialize() {
+        let update = Action::UpdateLeverage(UpdateLeverageAction {
+            asset: 42,
+            is_cross: true,
+            leverage: 10,
+        });
+        let update_value = serde_json::to_value(update).unwrap();
+        assert_eq!(update_value["type"], "updateLeverage");
+        assert_eq!(update_value["asset"], 42);
+        assert_eq!(update_value["isCross"], true);
+        assert_eq!(update_value["leverage"], 10);
+
+        let transfer = Action::VaultTransfer(VaultTransferAction {
+            vault_address: address!("0xdfc24b077bc1425ad1dea75bcb6f8158e10df303"),
+            is_deposit: true,
+            usd: 1_000_000,
+        });
+        let transfer_value = serde_json::to_value(transfer).unwrap();
+        assert_eq!(transfer_value["type"], "vaultTransfer");
+        assert_eq!(
+            transfer_value["vaultAddress"],
+            "0xdfc24b077bc1425ad1dea75bcb6f8158e10df303"
+        );
+        assert_eq!(transfer_value["isDeposit"], true);
+        assert_eq!(transfer_value["usd"], 1_000_000);
+    }
+
+    #[test]
+    fn twap_order_and_cancel_responses_deserialize() {
+        let running = r#"{
+            "status":"ok",
+            "response":{
+                "type":"twapOrder",
+                "data":{
+                    "status":{"running":{"twapId":77738308}}
+                }
+            }
+        }"#;
+        let running: Response = serde_json::from_str(running).unwrap();
+        match running {
+            Response::Ok(OkResponse::TwapOrder { status }) => {
+                assert_eq!(status.twap_id(), Some(77_738_308));
+                assert_eq!(status.error(), None);
+            }
+            _ => panic!("expected twapOrder running response"),
+        }
+
+        let twap_error = r#"{
+            "status":"ok",
+            "response":{
+                "type":"twapOrder",
+                "data":{
+                    "status":{"error":"Invalid TWAP duration: 1 min(s)"}
+                }
+            }
+        }"#;
+        let twap_error: Response = serde_json::from_str(twap_error).unwrap();
+        match twap_error {
+            Response::Ok(OkResponse::TwapOrder { status }) => {
+                assert_eq!(status.twap_id(), None);
+                assert_eq!(status.error(), Some("Invalid TWAP duration: 1 min(s)"));
+            }
+            _ => panic!("expected twapOrder error response"),
+        }
+
+        let cancel_success = r#"{
+            "status":"ok",
+            "response":{
+                "type":"twapCancel",
+                "data":{"status":"success"}
+            }
+        }"#;
+        let cancel_success: Response = serde_json::from_str(cancel_success).unwrap();
+        match cancel_success {
+            Response::Ok(OkResponse::TwapCancel { status }) => {
+                assert!(status.is_success());
+                assert_eq!(status.error(), None);
+            }
+            _ => panic!("expected twapCancel success response"),
+        }
+
+        let cancel_error = r#"{
+            "status":"ok",
+            "response":{
+                "type":"twapCancel",
+                "data":{"status":{"error":"TWAP was never placed, already canceled, or filled."}}
+            }
+        }"#;
+        let cancel_error: Response = serde_json::from_str(cancel_error).unwrap();
+        match cancel_error {
+            Response::Ok(OkResponse::TwapCancel { status }) => {
+                assert!(!status.is_success());
+                assert_eq!(
+                    status.error(),
+                    Some("TWAP was never placed, already canceled, or filled.")
+                );
+            }
+            _ => panic!("expected twapCancel error response"),
+        }
     }
 }

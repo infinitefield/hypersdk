@@ -22,6 +22,7 @@ PRIVATE_KEY=your_private_key_here
 # HyperCore examples
 cargo run --example list_markets
 cargo run --example send_order
+cargo run --example twap-order -- --coin BTC --side buy --sz 0.01 --minutes 30
 cargo run --example websocket-user-events -- --user 0xYourAddress
 
 # Morpho examples
@@ -56,6 +57,7 @@ These examples require a private key and perform state-changing operations.
 | Example | Description | Requires Key |
 |---------|-------------|--------------|
 | `send_order` | Place a single limit order on a perpetual market | Yes |
+| `twap-order` | Submit a TWAP order and optionally cancel it | Yes |
 | `send_usd` | Send USDC from perpetual balance to another address | Yes |
 | `transfer_to_evm` | Transfer assets from HyperCore to HyperEVM | Yes |
 | `transfer_from_evm` | Transfer assets from HyperEVM to HyperCore | Yes |
