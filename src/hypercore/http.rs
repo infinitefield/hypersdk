@@ -60,14 +60,15 @@ use crate::hypercore::{
     PerpMarket, Signature, SpotMarket, SpotToken,
     api::{
         Action, ActionRequest, ApproveAgent, ConvertToMultiSigUser, OkResponse, Response,
-        SignersConfig,
+        SignersConfig, TwapCancelStatus, TwapOrderStatus,
     },
     mainnet_url, testnet_url,
     types::{
         BasicOrder, BatchCancel, BatchCancelCloid, BatchModify, BatchOrder, ClearinghouseState,
         Fill, FundingRate, InfoRequest, OrderResponseStatus, OrderUpdate, ScheduleCancel,
-        SendAsset, SendToken, SpotSend, SubAccount, UsdSend, UserBalance, UserRole,
-        UserVaultEquity, VaultDetails,
+        SendAsset, SendToken, SpotSend, SubAccount, TopUpIsolatedOnlyMargin, TwapCancel, TwapOrder,
+        UpdateLeverage, UsdSend, UserBalance, UserRole, UserVaultEquity, VaultDetails,
+        VaultTransfer,
     },
 };
 
@@ -1009,6 +1010,153 @@ impl Client {
         }
     }
 
+    /// Place a TWAP order.
+    ///
+    /// Returns the raw TWAP status payload so callers can inspect running/error state.
+    ///
+    /// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#place-a-twap-order>
+    pub async fn twap_order<S: SignerSync>(
+        &self,
+        signer: &S,
+        twap: TwapOrder,
+        nonce: u64,
+        vault_address: Option<Address>,
+        expires_after: Option<DateTime<Utc>>,
+    ) -> Result<TwapOrderStatus> {
+        let resp = self
+            .sign_and_send_sync(
+                signer,
+                twap.into_action(),
+                nonce,
+                vault_address,
+                expires_after,
+            )
+            .await?;
+
+        match resp {
+            Response::Ok(OkResponse::TwapOrder { status }) => Ok(status),
+            Response::Err(err) => {
+                anyhow::bail!("twap_order: {err}")
+            }
+            _ => anyhow::bail!("twap_order: unexpected response type: {resp:?}"),
+        }
+    }
+
+    /// Cancel a TWAP order.
+    ///
+    /// Returns the raw TWAP cancel status payload so callers can inspect success/error state.
+    ///
+    /// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#cancel-a-twap-order>
+    pub async fn twap_cancel<S: SignerSync>(
+        &self,
+        signer: &S,
+        cancel: TwapCancel,
+        nonce: u64,
+        vault_address: Option<Address>,
+        expires_after: Option<DateTime<Utc>>,
+    ) -> Result<TwapCancelStatus> {
+        let resp = self
+            .sign_and_send_sync(
+                signer,
+                cancel.into_action(),
+                nonce,
+                vault_address,
+                expires_after,
+            )
+            .await?;
+
+        match resp {
+            Response::Ok(OkResponse::TwapCancel { status }) => Ok(status),
+            Response::Err(err) => {
+                anyhow::bail!("twap_cancel: {err}")
+            }
+            _ => anyhow::bail!("twap_cancel: unexpected response type: {resp:?}"),
+        }
+    }
+
+    /// Update cross or isolated leverage for an asset.
+    ///
+    /// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#update-leverage>
+    pub async fn update_leverage<S: SignerSync>(
+        &self,
+        signer: &S,
+        update: UpdateLeverage,
+        nonce: u64,
+        vault_address: Option<Address>,
+        expires_after: Option<DateTime<Utc>>,
+    ) -> Result<()> {
+        let resp = self
+            .sign_and_send_sync(
+                signer,
+                update.into_action(),
+                nonce,
+                vault_address,
+                expires_after,
+            )
+            .await?;
+
+        match resp {
+            Response::Ok(OkResponse::Default) => Ok(()),
+            Response::Err(err) => {
+                anyhow::bail!("update_leverage: {err}")
+            }
+            _ => anyhow::bail!("update_leverage: unexpected response type: {resp:?}"),
+        }
+    }
+
+    /// Top up isolated-only margin to a target leverage.
+    ///
+    /// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#update-isolated-margin>
+    pub async fn top_up_isolated_only_margin<S: SignerSync>(
+        &self,
+        signer: &S,
+        top_up: TopUpIsolatedOnlyMargin,
+        nonce: u64,
+        vault_address: Option<Address>,
+        expires_after: Option<DateTime<Utc>>,
+    ) -> Result<()> {
+        let resp = self
+            .sign_and_send_sync(
+                signer,
+                top_up.into_action(),
+                nonce,
+                vault_address,
+                expires_after,
+            )
+            .await?;
+
+        match resp {
+            Response::Ok(OkResponse::Default) => Ok(()),
+            Response::Err(err) => {
+                anyhow::bail!("top_up_isolated_only_margin: {err}")
+            }
+            _ => anyhow::bail!("top_up_isolated_only_margin: unexpected response type: {resp:?}"),
+        }
+    }
+
+    /// Deposit to or withdraw from a vault.
+    ///
+    /// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#deposit-or-withdraw-from-a-vault>
+    pub async fn vault_transfer<S: SignerSync>(
+        &self,
+        signer: &S,
+        transfer: VaultTransfer,
+        nonce: u64,
+        expires_after: Option<DateTime<Utc>>,
+    ) -> Result<()> {
+        let resp = self
+            .sign_and_send_sync(signer, transfer.into_action(), nonce, None, expires_after)
+            .await?;
+
+        match resp {
+            Response::Ok(OkResponse::Default) => Ok(()),
+            Response::Err(err) => {
+                anyhow::bail!("vault_transfer: {err}")
+            }
+            _ => anyhow::bail!("vault_transfer: unexpected response type: {resp:?}"),
+        }
+    }
+
     /// Places a batch of orders.
     ///
     /// Submits one or more orders to the exchange. Each order must be signed with your private key.
@@ -1592,22 +1740,18 @@ impl Client {
 
         async move {
             let req = res?;
-            let res = http_client
-                .post(url)
-                .json(&req)
-                .send()
-                .await?;
+            let res = http_client.post(url).json(&req).send().await?;
 
             let status = res.status();
             let text = res.text().await?;
-            
+
             if !status.is_success() {
                 return Err(anyhow!("HTTP {status} body={text}"));
             }
-            
+
             let parsed = serde_json::from_str(&text)
                 .map_err(|e| anyhow!("decode failed: {e}; body={text}"))?;
-            
+
             Ok(parsed)
         }
     }

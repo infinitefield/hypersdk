@@ -32,6 +32,13 @@
 //! - [`SpotSend`]: Send spot tokens
 //! - [`SendAsset`]: Send assets between accounts/DEXes
 //!
+//! ## Execution Action Types
+//! - [`TwapOrder`]: Place a TWAP execution order
+//! - [`TwapCancel`]: Cancel an existing TWAP order
+//! - [`UpdateLeverage`]: Update cross/isolated leverage
+//! - [`TopUpIsolatedOnlyMargin`]: Target isolated-only leverage
+//! - [`VaultTransfer`]: Deposit to or withdraw from a vault
+//!
 //! ## API Response Types
 //! - [`OrderResponseStatus`]: Result of order submission
 //! - [`UserBalance`]: Account balance information
@@ -91,7 +98,10 @@ pub(super) mod solidity;
 pub use api::{Action, ActionRequest, MultiSigAction, MultiSigPayload};
 
 // Import from raw module (which is now a submodule)
-use api::{SendAssetAction, SpotSendAction, UsdSendAction};
+use api::{
+    SendAssetAction, SpotSendAction, TopUpIsolatedOnlyMarginAction, TwapCancelAction,
+    TwapOrderAction, UpdateLeverageAction, UsdSendAction, VaultTransferAction,
+};
 
 fn decimal_from_json_value(value: &serde_json::Value) -> Result<Decimal, String> {
     match value {
@@ -1777,6 +1787,136 @@ impl SendAsset {
             amount: self.amount,
             from_sub_account: self.from_sub_account,
             nonce: self.nonce,
+        }
+    }
+}
+
+/// TWAP order parameters (inner data).
+///
+/// Converts to [`api::TwapOrderAction`] via [`Self::into_action`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TwapOrder {
+    /// Asset index identifying the trading pair.
+    pub asset: usize,
+    /// `true` for buy TWAP, `false` for sell TWAP.
+    pub is_buy: bool,
+    /// Total TWAP size in base units.
+    pub sz: Decimal,
+    /// Whether the TWAP may only reduce an existing position.
+    pub reduce_only: bool,
+    /// TWAP duration in minutes.
+    pub minutes: u64,
+    /// Whether to randomize child slices.
+    pub randomize: bool,
+}
+
+impl TwapOrder {
+    /// Converts this into a signable `twapOrder` action.
+    #[must_use]
+    pub fn into_action(self) -> TwapOrderAction {
+        TwapOrderAction {
+            twap: api::TwapOrder {
+                asset: self.asset,
+                is_buy: self.is_buy,
+                sz: self.sz,
+                reduce_only: self.reduce_only,
+                minutes: self.minutes,
+                randomize: self.randomize,
+            },
+        }
+    }
+}
+
+/// TWAP cancel parameters (inner data).
+///
+/// Converts to [`api::TwapCancelAction`] via [`Self::into_action`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TwapCancel {
+    /// Asset index identifying the trading pair.
+    pub asset: usize,
+    /// TWAP identifier.
+    pub twap_id: u64,
+}
+
+impl TwapCancel {
+    /// Converts this into a signable `twapCancel` action.
+    #[must_use]
+    pub fn into_action(self) -> TwapCancelAction {
+        TwapCancelAction {
+            asset: self.asset,
+            twap_id: self.twap_id,
+        }
+    }
+}
+
+/// Update leverage parameters (inner data).
+///
+/// Converts to [`api::UpdateLeverageAction`] via [`Self::into_action`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateLeverage {
+    /// Asset index identifying the trading pair.
+    pub asset: usize,
+    /// `true` for cross leverage, `false` for isolated leverage.
+    pub is_cross: bool,
+    /// Target leverage.
+    pub leverage: u32,
+}
+
+impl UpdateLeverage {
+    /// Converts this into a signable `updateLeverage` action.
+    #[must_use]
+    pub fn into_action(self) -> UpdateLeverageAction {
+        UpdateLeverageAction {
+            asset: self.asset,
+            is_cross: self.is_cross,
+            leverage: self.leverage,
+        }
+    }
+}
+
+/// Top-up isolated-only margin parameters (inner data).
+///
+/// Converts to [`api::TopUpIsolatedOnlyMarginAction`] via [`Self::into_action`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TopUpIsolatedOnlyMargin {
+    /// Asset index identifying the trading pair.
+    pub asset: usize,
+    /// Target leverage represented as a decimal number.
+    pub leverage: Decimal,
+}
+
+impl TopUpIsolatedOnlyMargin {
+    /// Converts this into a signable `topUpIsolatedOnlyMargin` action.
+    #[must_use]
+    pub fn into_action(self) -> TopUpIsolatedOnlyMarginAction {
+        TopUpIsolatedOnlyMarginAction {
+            asset: self.asset,
+            leverage: self.leverage,
+        }
+    }
+}
+
+/// Vault transfer parameters (inner data).
+///
+/// Converts to [`api::VaultTransferAction`] via [`Self::into_action`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VaultTransfer {
+    /// Target vault address.
+    pub vault_address: Address,
+    /// `true` to deposit to vault, `false` to withdraw from vault.
+    pub is_deposit: bool,
+    /// USD amount in integer representation expected by exchange action.
+    pub usd: u64,
+}
+
+impl VaultTransfer {
+    /// Converts this into a signable `vaultTransfer` action.
+    #[must_use]
+    pub fn into_action(self) -> VaultTransferAction {
+        VaultTransferAction {
+            vault_address: self.vault_address,
+            is_deposit: self.is_deposit,
+            usd: self.usd,
         }
     }
 }

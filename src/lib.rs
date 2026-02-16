@@ -21,7 +21,7 @@
 //! ## Features
 //!
 //! - Full HyperCore API support (HTTP and WebSocket)
-//! - Trading operations (orders, cancellations, modifications)
+//! - Trading operations (orders, cancellations, modifications, TWAP)
 //! - Real-time market data via WebSocket subscriptions
 //! - Asset transfers between perps, spot, and EVM
 //! - HyperEVM contract interactions (Morpho, Uniswap)
@@ -87,6 +87,58 @@
 //!
 //! let nonce = chrono::Utc::now().timestamp_millis() as u64;
 //! let result = client.place(&signer, order, nonce, None, None).await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ### TWAP and Account Actions
+//!
+//! ```no_run
+//! use hypersdk::hypercore::{self, types::*, PrivateKeySigner};
+//! use hypersdk::hypercore::api::TwapOrderStatus;
+//! use rust_decimal::dec;
+//!
+//! # async fn example() -> anyhow::Result<()> {
+//! let client = hypercore::mainnet();
+//! let signer: PrivateKeySigner = "your_private_key".parse()?;
+//! let nonce = chrono::Utc::now().timestamp_millis() as u64;
+//!
+//! let twap = TwapOrder {
+//!     asset: 0,
+//!     is_buy: true,
+//!     sz: dec!(0.5),
+//!     reduce_only: false,
+//!     minutes: 30,
+//!     randomize: true,
+//! };
+//! let status = client.twap_order(&signer, twap, nonce, None, None).await?;
+//! if let TwapOrderStatus::Running { running } = status {
+//!     println!("twapId={}", running.twap_id);
+//! }
+//!
+//! client.update_leverage(
+//!     &signer,
+//!     UpdateLeverage { asset: 0, is_cross: true, leverage: 10 },
+//!     nonce + 1,
+//!     None,
+//!     None,
+//! ).await?;
+//!
+//! client.top_up_isolated_only_margin(
+//!     &signer,
+//!     TopUpIsolatedOnlyMargin { asset: 0, leverage: dec!(5) },
+//!     nonce + 2,
+//!     None,
+//!     None,
+//! ).await?;
+//!
+//! let vault: hypersdk::Address = "0xdfc24b077bc1425ad1dea75bcb6f8158e10df303".parse()?;
+//! client.vault_transfer(
+//!     &signer,
+//!     VaultTransfer { vault_address: vault, is_deposit: true, usd: 1_000_000 },
+//!     nonce + 3,
+//!     None,
+//! ).await?;
 //! # Ok(())
 //! # }
 //! ```

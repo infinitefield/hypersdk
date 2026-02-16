@@ -72,6 +72,10 @@ name = "send_order"
 path = "examples/hypercore/send_order.rs"
 
 [[example]]
+name = "twap-order"
+path = "examples/hypercore/twap_order.rs"
+
+[[example]]
 name = "send_usd"
 path = "examples/hypercore/send_usd.rs"
 

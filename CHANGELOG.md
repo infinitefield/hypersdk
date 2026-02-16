@@ -12,11 +12,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - New typed WS payloads for user events, TWAP slice/history streams, and active asset data
 - Forward-compatible fallback parsing for unknown `userEvents` payload variants
 - New example: `examples/hypercore/websocket-user-events.rs`
+- HyperCore execution actions: `twapOrder`, `twapCancel`, `updateLeverage`, `topUpIsolatedOnlyMargin`, and `vaultTransfer`
+- New typed TWAP response models (`twapOrder` / `twapCancel`) and helper accessors
+- New example: `examples/hypercore/twap_order.rs`
 
 ### Changed
 
 - Extended WebSocket docs/snippets in README and crate docs to include advanced user streams
 - Added serde test coverage for the new WS channels and payload schemas
+- Extended docs to include TWAP and account execution actions
 
 ## [v0.1.5] - 2026-01-12
 
