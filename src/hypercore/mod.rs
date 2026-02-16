@@ -563,6 +563,30 @@ pub struct PriceTick {
 }
 
 impl PriceTick {
+    /// Creates a price tick configuration for a spot market.
+    ///
+    /// For spot markets, max decimal places is 8.
+    /// Uses: max_decimals = 8 - sz_decimals
+    ///
+    /// See: <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/tick-and-lot-size>
+    pub fn for_spot(sz_decimals: i64) -> Self {
+        Self {
+            max_decimals: 8 - sz_decimals,
+        }
+    }
+
+    /// Creates a price tick configuration for a perpetual market.
+    ///
+    /// For perps, the max significant figures is 5 and max decimal places is 6.
+    /// Uses: max_decimals = 6 - sz_decimals
+    ///
+    /// See: <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/tick-and-lot-size>
+    pub fn for_perp(sz_decimals: i64) -> Self {
+        Self {
+            max_decimals: 6 - sz_decimals,
+        }
+    }
+
     /// Returns the valid tick size for a given price.
     ///
     /// The tick size determines the minimum price increment for orders at this price level.
@@ -673,25 +697,6 @@ impl PriceTick {
         let rounded = price.round_dp_with_strategy(tick.scale(), strategy);
         Some(rounded)
     }
-}
-
-/// Creates a price tick configuration for a spot market.
-///
-/// See: <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/tick-and-lot-size>
-fn build_price_ticks(sz_decimals: i64) -> PriceTick {
-    let max_decimals = 8 - sz_decimals;
-    PriceTick { max_decimals }
-}
-
-/// Creates a price tick configuration for a perpetual market.
-///
-/// For perps, the max significant figures is 5 and max decimal places is 6.
-/// This function uses: max_decimals = 6 - sz_decimals (as a construction parameter)
-///
-/// See: <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/tick-and-lot-size>
-fn build_perp_price_ticks(sz_decimals: i64) -> PriceTick {
-    let max_decimals = 6 - sz_decimals;
-    PriceTick { max_decimals }
 }
 
 /// Perpetual futures contract market.
@@ -979,7 +984,7 @@ mod tick_tests {
         ];
 
         for (sz_decimals, price, expected_tick, expected_price) in prices {
-            let table = build_perp_price_ticks(sz_decimals);
+            let table = PriceTick::for_perp(sz_decimals);
             let tick = table.tick_for(price);
             assert_eq!(
                 tick,
@@ -1013,7 +1018,7 @@ mod tick_tests {
         ];
 
         for (sz_decimals, price, expected_tick, expected_price) in prices {
-            let table = build_price_ticks(sz_decimals);
+            let table = PriceTick::for_spot(sz_decimals);
             let tick = table.tick_for(price);
             assert_eq!(
                 tick,
@@ -1277,7 +1282,7 @@ pub async fn spot_markets(
             name: item.name,
             index: 10_000 + item.index,
             tokens: [base.clone(), quote.clone()],
-            table: build_price_ticks(base.sz_decimals),
+            table: PriceTick::for_spot(base.sz_decimals),
         });
     }
 
@@ -1388,7 +1393,7 @@ pub async fn perp_markets(
                 isolated_margin: perp.only_isolated,
                 margin_mode: perp.margin_mode,
                 growth_mode: perp.growth_mode,
-                table: build_perp_price_ticks(perp.sz_decimals),
+                table: PriceTick::for_perp(perp.sz_decimals),
             }
         })
         .collect();
