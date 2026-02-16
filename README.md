@@ -168,8 +168,9 @@ async fn main() -> anyhow::Result<()> {
 ### HyperCore - WebSocket Subscriptions
 
 ```rust
-use hypersdk::hypercore::{self, types::*};
 use futures::StreamExt;
+use hypersdk::Address;
+use hypersdk::hypercore::{self, types::*, ws::Event};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -179,16 +180,31 @@ async fn main() -> anyhow::Result<()> {
     ws.subscribe(Subscription::Trades { coin: "BTC".into() });
     ws.subscribe(Subscription::L2Book { coin: "ETH".into() });
 
-    // Process incoming messages
-    while let Some(msg) = ws.next().await {
+    // Optional: user streams
+    let user: Address = "0x1234567890abcdef1234567890abcdef12345678".parse()?;
+    ws.subscribe(Subscription::UserEvents { user });
+    ws.subscribe(Subscription::ActiveAssetData {
+        user,
+        coin: "BTC".into(),
+    });
+
+    // Process incoming events
+    while let Some(event) = ws.next().await {
+        let Event::Message(msg) = event else { continue };
         match msg {
             Incoming::Trades(trades) => {
                 for trade in trades {
-                    println!("{} @ {} size {}", trade.side, trade.px, trade.sz);
+                    println!("trade {} @ {} size {}", trade.side, trade.px, trade.sz);
                 }
             }
             Incoming::L2Book(book) => {
-                println!("Order book update for {}", book.coin);
+                println!("book update for {}", book.coin);
+            }
+            Incoming::UserEvents(user_event) => {
+                println!("user event: {:?}", user_event);
+            }
+            Incoming::ActiveAssetData(data) => {
+                println!("{} leverage {}", data.coin, data.leverage.value);
             }
             _ => {}
         }
