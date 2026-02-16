@@ -114,7 +114,7 @@ async fn main() -> anyhow::Result<()> {
                             item.state.sz,
                             item.state.executed_sz,
                             status,
-                            item.status.description
+                            item.status.description.as_deref().unwrap_or("")
                         );
                     }
                 }

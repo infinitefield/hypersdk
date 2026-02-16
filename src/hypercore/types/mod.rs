@@ -1212,7 +1212,8 @@ pub enum TwapStatus {
 #[serde(rename_all = "camelCase")]
 pub struct TwapHistoryStatus {
     pub status: TwapStatus,
-    pub description: String,
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
 /// TWAP state payload from `userTwapHistory`.
@@ -3484,8 +3485,51 @@ mod tests {
                 assert_eq!(item.state.coin, "BTC");
                 assert_eq!(item.state.sz.to_string(), "0.5");
                 assert_eq!(item.state.executed_sz.to_string(), "0.25");
-                assert_eq!(item.status.description, "completed");
+                assert_eq!(item.status.description.as_deref(), Some("completed"));
                 assert!(matches!(item.status.status, TwapStatus::Finished));
+            }
+            _ => panic!("Expected Incoming::UserTwapHistory"),
+        }
+    }
+
+    #[test]
+    fn test_incoming_user_twap_history_without_description() {
+        let json = r#"{
+            "channel":"userTwapHistory",
+            "data":{
+                "isSnapshot":true,
+                "user":"0x1234567890abcdef1234567890abcdef12345678",
+                "history":[
+                    {
+                        "state":{
+                            "coin":"BTC",
+                            "user":"0x1234567890abcdef1234567890abcdef12345678",
+                            "side":"buy",
+                            "sz":"0.5",
+                            "executedSz":"0.0",
+                            "executedNtl":"0.0",
+                            "minutes":30,
+                            "reduceOnly":false,
+                            "randomize":false,
+                            "timestamp":1710000000333
+                        },
+                        "status":{
+                            "status":"activated"
+                        },
+                        "time":1710000000333
+                    }
+                ]
+            }
+        }"#;
+
+        let incoming: Incoming = serde_json::from_str(json).unwrap();
+        match incoming {
+            Incoming::UserTwapHistory(payload) => {
+                assert_eq!(payload.is_snapshot, Some(true));
+                assert_eq!(payload.history.len(), 1);
+                let item = &payload.history[0];
+                assert!(matches!(item.status.status, TwapStatus::Activated));
+                assert_eq!(item.status.description, None);
             }
             _ => panic!("Expected Incoming::UserTwapHistory"),
         }
