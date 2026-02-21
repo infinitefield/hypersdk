@@ -597,6 +597,9 @@ pub struct Trade {
     pub hash: String,
     /// Trade ID
     pub tid: u64,
+    /// Participant addresses: [buyer, seller]
+    #[serde(default)]
+    pub users: [String; 2],
     /// Liquidation details, if applicable
     #[serde(skip_serializing_if = "Option::is_none")]
     pub liquidation: Option<Liquidation>,
@@ -625,6 +628,34 @@ impl Trade {
     #[must_use]
     pub fn is_sell(&self) -> bool {
         matches!(self.side, Side::Ask)
+    }
+
+    /// Returns the taker's wallet address, if available.
+    ///
+    /// `users` is `[buyer, seller]`. The taker is the buyer on a `Bid`
+    /// and the seller on an `Ask`. Returns `None` when the address is
+    /// the empty-string default (i.e. the field was absent from JSON).
+    #[must_use]
+    pub fn taker_address(&self) -> Option<&str> {
+        let addr = match self.side {
+            Side::Bid => &self.users[0],
+            Side::Ask => &self.users[1],
+        };
+        if addr.is_empty() { None } else { Some(addr) }
+    }
+
+    /// Returns the maker's wallet address, if available.
+    ///
+    /// `users` is `[buyer, seller]`. The maker is the seller on a `Bid`
+    /// and the buyer on an `Ask`. Returns `None` when the address is
+    /// the empty-string default (i.e. the field was absent from JSON).
+    #[must_use]
+    pub fn maker_address(&self) -> Option<&str> {
+        let addr = match self.side {
+            Side::Bid => &self.users[1],
+            Side::Ask => &self.users[0],
+        };
+        if addr.is_empty() { None } else { Some(addr) }
     }
 }
 
@@ -3677,5 +3708,116 @@ mod tests {
 
         // Check timestamp
         assert_eq!(state.time, 1768397010203);
+    }
+
+    #[test]
+    fn trade_deserializes_with_users() {
+        let json = r#"{
+            "coin": "BTC",
+            "side": "B",
+            "px": "97000.0",
+            "sz": "0.5",
+            "time": 1700000000000,
+            "hash": "0xabc123",
+            "tid": 42,
+            "users": ["0xbuyer111", "0xseller222"]
+        }"#;
+        let trade: Trade = serde_json::from_str(json).unwrap();
+        assert_eq!(trade.users[0], "0xbuyer111");
+        assert_eq!(trade.users[1], "0xseller222");
+    }
+
+    #[test]
+    fn trade_deserializes_without_users() {
+        let json = r#"{
+            "coin": "BTC",
+            "side": "A",
+            "px": "97000.0",
+            "sz": "0.5",
+            "time": 1700000000000,
+            "hash": "0xabc123",
+            "tid": 42
+        }"#;
+        let trade: Trade = serde_json::from_str(json).unwrap();
+        assert_eq!(trade.users, ["", ""]);
+    }
+
+    #[test]
+    fn taker_address_returns_buyer_on_bid() {
+        let json = r#"{
+            "coin": "BTC",
+            "side": "B",
+            "px": "97000.0",
+            "sz": "0.5",
+            "time": 1700000000000,
+            "hash": "0xabc123",
+            "tid": 42,
+            "users": ["0xbuyer111", "0xseller222"]
+        }"#;
+        let trade: Trade = serde_json::from_str(json).unwrap();
+        assert_eq!(trade.taker_address(), Some("0xbuyer111"));
+    }
+
+    #[test]
+    fn taker_address_returns_seller_on_ask() {
+        let json = r#"{
+            "coin": "BTC",
+            "side": "A",
+            "px": "97000.0",
+            "sz": "0.5",
+            "time": 1700000000000,
+            "hash": "0xabc123",
+            "tid": 42,
+            "users": ["0xbuyer111", "0xseller222"]
+        }"#;
+        let trade: Trade = serde_json::from_str(json).unwrap();
+        assert_eq!(trade.taker_address(), Some("0xseller222"));
+    }
+
+    #[test]
+    fn taker_address_returns_none_when_users_absent() {
+        let json = r#"{
+            "coin": "BTC",
+            "side": "B",
+            "px": "97000.0",
+            "sz": "0.5",
+            "time": 1700000000000,
+            "hash": "0xabc123",
+            "tid": 42
+        }"#;
+        let trade: Trade = serde_json::from_str(json).unwrap();
+        assert_eq!(trade.taker_address(), None);
+    }
+
+    #[test]
+    fn maker_address_returns_seller_on_bid() {
+        let json = r#"{
+            "coin": "BTC",
+            "side": "B",
+            "px": "97000.0",
+            "sz": "0.5",
+            "time": 1700000000000,
+            "hash": "0xabc123",
+            "tid": 42,
+            "users": ["0xbuyer111", "0xseller222"]
+        }"#;
+        let trade: Trade = serde_json::from_str(json).unwrap();
+        assert_eq!(trade.maker_address(), Some("0xseller222"));
+    }
+
+    #[test]
+    fn maker_address_returns_buyer_on_ask() {
+        let json = r#"{
+            "coin": "BTC",
+            "side": "A",
+            "px": "97000.0",
+            "sz": "0.5",
+            "time": 1700000000000,
+            "hash": "0xabc123",
+            "tid": 42,
+            "users": ["0xbuyer111", "0xseller222"]
+        }"#;
+        let trade: Trade = serde_json::from_str(json).unwrap();
+        assert_eq!(trade.maker_address(), Some("0xbuyer111"));
     }
 }
