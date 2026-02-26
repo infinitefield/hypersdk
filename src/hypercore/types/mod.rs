@@ -408,8 +408,8 @@ pub enum Incoming {
     /// Order status changes for a user
     OrderUpdates(Vec<OrderUpdate>),
     /// Fill events for a user
+    #[serde(rename_all = "camelCase")]
     UserFills {
-        #[serde(default)]
         is_snapshot: bool,
         user: Address,
         fills: Vec<Fill>,
