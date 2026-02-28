@@ -94,8 +94,9 @@
 //! ### WebSocket Subscriptions
 //!
 //! ```no_run
-//! use hypersdk::hypercore::{self, types::*, ws::Event};
 //! use futures::StreamExt;
+//! use hypersdk::Address;
+//! use hypersdk::hypercore::{self, types::*, ws::Event};
 //!
 //! # async fn example() -> anyhow::Result<()> {
 //! let mut ws = hypercore::mainnet_ws();
@@ -106,6 +107,14 @@
 //! ws.subscribe(Subscription::Candle {
 //!     coin: "BTC".into(),
 //!     interval: "15m".into()
+//! });
+//!
+//! // Optional: user streams
+//! let user: Address = "0x1234567890abcdef1234567890abcdef12345678".parse()?;
+//! ws.subscribe(Subscription::UserEvents { user });
+//! ws.subscribe(Subscription::ActiveAssetData {
+//!     user,
+//!     coin: "BTC".into(),
 //! });
 //!
 //! // Process incoming events
@@ -123,6 +132,12 @@
 //!         Incoming::Candle(candle) => {
 //!             println!("Candle: O:{} H:{} L:{} C:{}",
 //!                 candle.open, candle.high, candle.low, candle.close);
+//!         }
+//!         Incoming::UserEvents(user_event) => {
+//!             println!("User event: {:?}", user_event);
+//!         }
+//!         Incoming::ActiveAssetData(data) => {
+//!             println!("{} leverage {}", data.coin, data.leverage.value);
 //!         }
 //!         _ => {}
 //!     }

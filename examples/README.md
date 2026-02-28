@@ -22,6 +22,7 @@ PRIVATE_KEY=your_private_key_here
 # HyperCore examples
 cargo run --example list_markets
 cargo run --example send_order
+cargo run --example websocket-user-events -- --user 0xYourAddress
 
 # Morpho examples
 cargo run --example morpho_highest_apy
@@ -44,6 +45,7 @@ Start here if you're new to the SDK. These examples show read-only operations.
 | `list-tokens` | List all spot tokens with metadata | No |
 | `list-hip3` | Query HIP-3 DEXes and their perpetual markets | No |
 | `websocket` | Subscribe to real-time trades, order books, and user events | No (read-only) |
+| `websocket-user-events` | Subscribe to userEvents, TWAP streams, activeAssetData, and webData2 | No (read-only, requires user address) |
 
 **Try first:** `cargo run --example list_markets`
 

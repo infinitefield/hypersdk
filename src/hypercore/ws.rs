@@ -184,16 +184,21 @@ impl futures::Stream for Stream {
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
-        while let Some(frame) = ready!(this.stream.poll_next_unpin(cx))
-            && frame.opcode() == OpCode::Text
-        {
-            match serde_json::from_slice(frame.payload()) {
-                Ok(ok) => {
-                    return Poll::Ready(Some(ok));
+        while let Some(frame) = ready!(this.stream.poll_next_unpin(cx)) {
+            if frame.opcode() == OpCode::Text {
+                match serde_json::from_slice(frame.payload()) {
+                    Ok(ok) => {
+                        return Poll::Ready(Some(ok));
+                    }
+                    Err(err) => {
+                        log::warn!("unable to parse: {}: {:?}", frame.as_str(), err);
+                    }
                 }
-                Err(err) => {
-                    log::warn!("unable to parse: {}: {:?}", frame.as_str(), err);
-                }
+            } else {
+                log::warn!(
+                    "Hyperliquid sent a binary msg? {data:?}",
+                    data = frame.payload()
+                );
             }
         }
 

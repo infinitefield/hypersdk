@@ -22,6 +22,10 @@
 //! - [`OrderUpdate`]: Order status changes
 //! - [`L2Book`]: Order book snapshots and deltas
 //! - [`Bbo`]: Best bid and offer updates
+//! - [`UserEvent`]: Funding, liquidation, and non-user-cancel events
+//! - [`ActiveAssetData`]: User leverage and trade-size limits
+//! - [`UserTwapSliceFills`]: TWAP slice fills for a user
+//! - [`UserTwapHistory`]: TWAP lifecycle updates for a user
 //!
 //! ## Transfer Types
 //! - [`UsdSend`]: Send USDC from perp balance
@@ -75,7 +79,7 @@ use alloy::{
     sol_types::eip712_domain,
 };
 use rust_decimal::Decimal;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 
 use crate::hypercore::{Chain, Cloid, OidOrCloid, SpotToken};
@@ -88,6 +92,48 @@ pub use api::{Action, ActionRequest, MultiSigAction, MultiSigPayload};
 
 // Import from raw module (which is now a submodule)
 use api::{SendAssetAction, SpotSendAction, UsdSendAction};
+
+fn decimal_from_json_value(value: &serde_json::Value) -> Result<Decimal, String> {
+    match value {
+        serde_json::Value::String(s) => s
+            .parse::<Decimal>()
+            .map_err(|e| format!("invalid decimal string `{s}`: {e}")),
+        serde_json::Value::Number(n) => n
+            .to_string()
+            .parse::<Decimal>()
+            .map_err(|e| format!("invalid decimal number `{n}`: {e}")),
+        _ => Err("expected decimal as string or number".to_string()),
+    }
+}
+
+fn deserialize_decimal_from_any<'de, D>(deserializer: D) -> Result<Decimal, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    decimal_from_json_value(&value).map_err(serde::de::Error::custom)
+}
+
+fn deserialize_optional_decimal_pair_from_any<'de, D>(
+    deserializer: D,
+) -> Result<Option<[Decimal; 2]>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<Vec<serde_json::Value>>::deserialize(deserializer)?;
+    match value {
+        None => Ok(None),
+        Some(values) => {
+            let [left, right]: [serde_json::Value; 2] = values.try_into().map_err(|_| {
+                serde::de::Error::custom("expected array with exactly two decimal values")
+            })?;
+            Ok(Some([
+                decimal_from_json_value(&left).map_err(serde::de::Error::custom)?,
+                decimal_from_json_value(&right).map_err(serde::de::Error::custom)?,
+            ]))
+        }
+    }
+}
 
 /// Domain for Core mainnet EIP‑712 signing.
 /// This domain is used when creating signatures for transactions on the mainnet.
@@ -207,6 +253,11 @@ pub enum Outgoing {
 /// |--------------|------------------|-------------|
 /// | [`OrderUpdates`](Self::OrderUpdates) | [`Incoming::OrderUpdates`] | Order status changes |
 /// | [`UserFills`](Self::UserFills) | [`Incoming::UserFills`] | Trade fills |
+/// | [`UserEvents`](Self::UserEvents) | [`Incoming::UserEvents`] | Funding, liquidation, and non-user-cancel updates |
+/// | [`UserTwapSliceFills`](Self::UserTwapSliceFills) | [`Incoming::UserTwapSliceFills`] | TWAP slice fill updates |
+/// | [`UserTwapHistory`](Self::UserTwapHistory) | [`Incoming::UserTwapHistory`] | TWAP lifecycle history updates |
+/// | [`ActiveAssetData`](Self::ActiveAssetData) | [`Incoming::ActiveAssetData`] | User leverage and trading limits for a perp asset |
+/// | [`WebData2`](Self::WebData2) | [`Incoming::WebData2`] | Frontend-style aggregate account snapshot |
 ///
 /// # Related Types
 ///
@@ -264,9 +315,24 @@ pub enum Subscription {
     /// Fill events for user
     #[display("userFills({user})")]
     UserFills { user: Address },
+    /// User events (funding, liquidation, non-user-cancel)
+    #[display("userEvents({user})")]
+    UserEvents { user: Address },
+    /// TWAP slice fill updates for user
+    #[display("userTwapSliceFills({user})")]
+    UserTwapSliceFills { user: Address },
+    /// TWAP history updates for user
+    #[display("userTwapHistory({user})")]
+    UserTwapHistory { user: Address },
     /// Real-time asset context (funding rate, mark price, open interest)
     #[display("activeAssetCtx({coin})")]
     ActiveAssetCtx { coin: String },
+    /// User-specific asset limits and leverage information (perps only)
+    #[display("activeAssetData({user},{coin})")]
+    ActiveAssetData { user: Address, coin: String },
+    /// Frontend-oriented aggregate user data feed
+    #[display("webData2({user})")]
+    WebData2 { user: Address },
 }
 
 /// Hyperliquid websocket message.
@@ -284,6 +350,11 @@ pub enum Subscription {
 /// - **Trades**: Trade events for a market
 /// - **OrderUpdates**: Order status changes for a user
 /// - **UserFills**: Fill events for a user
+/// - **UserEvents**: Funding/liquidation/non-user-cancel events for a user
+/// - **UserTwapSliceFills**: TWAP slice fill updates for a user
+/// - **UserTwapHistory**: TWAP status history updates for a user
+/// - **ActiveAssetData**: User leverage and limits for a specific perp asset
+/// - **WebData2**: Frontend-style aggregate user snapshot
 /// - **Ping/Pong**: Heartbeat messages
 ///
 /// # Example
@@ -337,9 +408,25 @@ pub enum Incoming {
     /// Order status changes for a user
     OrderUpdates(Vec<OrderUpdate>),
     /// Fill events for a user
-    UserFills { user: Address, fills: Vec<Fill> },
+    #[serde(rename_all = "camelCase")]
+    UserFills {
+        #[serde(default)]
+        is_snapshot: bool,
+        user: Address,
+        fills: Vec<Fill>,
+    },
+    /// User events for a user (funding, liquidation, non-user-cancel)
+    UserEvents(UserEvent),
+    /// TWAP slice fill updates for a user
+    UserTwapSliceFills(UserTwapSliceFills),
+    /// TWAP history updates for a user
+    UserTwapHistory(UserTwapHistory),
     /// Real-time asset context update (funding rate, mark price, etc.)
     ActiveAssetCtx { coin: String, ctx: AssetContext },
+    /// Real-time user asset limits/leverage for a perp asset
+    ActiveAssetData(ActiveAssetData),
+    /// Frontend aggregate user snapshot (dynamic schema)
+    WebData2(serde_json::Value),
     /// Server heartbeat ping
     Ping,
     /// Server heartbeat pong
@@ -516,6 +603,9 @@ pub struct Trade {
     pub hash: String,
     /// Trade ID
     pub tid: u64,
+    /// Participant addresses: [buyer, seller]
+    #[serde(default)]
+    pub users: [Address; 2],
     /// Liquidation details, if applicable
     #[serde(skip_serializing_if = "Option::is_none")]
     pub liquidation: Option<Liquidation>,
@@ -544,6 +634,30 @@ impl Trade {
     #[must_use]
     pub fn is_sell(&self) -> bool {
         matches!(self.side, Side::Ask)
+    }
+
+    /// Returns the taker's wallet address.
+    ///
+    /// `users` is `[buyer, seller]`. The taker is the buyer on a `Bid`
+    /// and the seller on an `Ask`.
+    #[must_use]
+    pub fn taker_address(&self) -> Address {
+        match self.side {
+            Side::Bid => self.users[0],
+            Side::Ask => self.users[1],
+        }
+    }
+
+    /// Returns the maker's wallet address.
+    ///
+    /// `users` is `[buyer, seller]`. The maker is the seller on a `Bid`
+    /// and the buyer on an `Ask`.
+    #[must_use]
+    pub fn maker_address(&self) -> Address {
+        match self.side {
+            Side::Bid => self.users[1],
+            Side::Ask => self.users[0],
+        }
     }
 }
 
@@ -809,7 +923,7 @@ pub struct L2Book {
     pub time: u64,
     /// True if snapshot, false/None if delta
     #[serde(default)]
-    pub snapshot: Option<bool>,
+    pub snapshot: bool,
     /// [bids, asks]
     pub levels: [Vec<BookLevel>; 2],
 }
@@ -818,7 +932,7 @@ impl L2Book {
     /// Returns true if this is a full snapshot (not a delta update).
     #[must_use]
     pub fn is_snapshot(&self) -> bool {
-        self.snapshot.unwrap_or(false)
+        self.snapshot
     }
 
     /// Returns the bid levels (sorted from highest to lowest).
@@ -991,6 +1105,187 @@ impl Fill {
     pub fn net_proceeds(&self) -> Decimal {
         self.notional() - self.fee
     }
+}
+
+/// User event payload for `userEvents` subscription.
+///
+/// Hyperliquid sends a single-key object where the key identifies the event class.
+/// This enum models the documented event classes and preserves unknown payloads.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum UserEvent {
+    /// Array of trade fills.
+    Fills { fills: Vec<Fill> },
+    /// Funding payment event.
+    Funding { funding: UserFunding },
+    /// Liquidation event.
+    Liquidation { liquidation: UserLiquidation },
+    /// Non-user cancellation event.
+    NonUserCancel {
+        #[serde(rename = "nonUserCancel")]
+        non_user_cancel: Vec<NonUserCancel>,
+    },
+    /// Unknown user event payload (forward-compatible fallback).
+    Unknown(serde_json::Value),
+}
+
+/// Funding payment event in `userEvents`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserFunding {
+    pub time: u64,
+    pub coin: String,
+    #[serde(deserialize_with = "deserialize_decimal_from_any")]
+    pub usdc: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_from_any")]
+    pub szi: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_from_any")]
+    pub funding_rate: Decimal,
+}
+
+/// Liquidation event in `userEvents`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UserLiquidation {
+    pub lid: u64,
+    pub liquidator: Address,
+    pub liquidated_user: Address,
+    #[serde(deserialize_with = "deserialize_decimal_from_any")]
+    pub liquidated_ntl_pos: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_from_any")]
+    pub liquidated_account_value: Decimal,
+}
+
+/// Cancellation record in `userEvents.nonUserCancel`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NonUserCancel {
+    pub coin: String,
+    pub oid: u64,
+}
+
+/// User leverage information for `activeAssetData`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserLeverage {
+    #[serde(rename = "type")]
+    pub leverage_type: String,
+    #[serde(deserialize_with = "deserialize_decimal_from_any")]
+    pub value: Decimal,
+}
+
+/// `activeAssetData` feed payload.
+///
+/// Includes user leverage configuration and per-side trade size availability.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveAssetData {
+    pub user: Address,
+    pub coin: String,
+    pub leverage: UserLeverage,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_decimal_pair_from_any"
+    )]
+    pub max_trade_szs: Option<[Decimal; 2]>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_decimal_pair_from_any"
+    )]
+    pub available_to_trade: Option<[Decimal; 2]>,
+}
+
+impl ActiveAssetData {
+    /// Returns the max tradable size for buy and sell directions, if provided.
+    #[must_use]
+    pub fn max_trade_szs_pair(&self) -> Option<(Decimal, Decimal)> {
+        self.max_trade_szs.map(|pair| (pair[0], pair[1]))
+    }
+
+    /// Returns available tradable size for buy and sell directions, if provided.
+    #[must_use]
+    pub fn available_to_trade_pair(&self) -> Option<(Decimal, Decimal)> {
+        self.available_to_trade.map(|pair| (pair[0], pair[1]))
+    }
+}
+
+/// One TWAP slice fill entry from `userTwapSliceFills`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TwapSliceFill {
+    pub fill: Fill,
+    pub twap_id: u64,
+}
+
+/// `userTwapSliceFills` feed payload.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserTwapSliceFills {
+    #[serde(default)]
+    pub is_snapshot: bool,
+    pub user: Address,
+    #[serde(default)]
+    pub twap_slice_fills: Vec<TwapSliceFill>,
+}
+
+/// TWAP status enum for `userTwapHistory`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TwapStatus {
+    Activated,
+    Terminated,
+    Finished,
+    Error,
+    #[serde(other)]
+    Unknown,
+}
+
+/// TWAP status payload from `userTwapHistory`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TwapHistoryStatus {
+    pub status: TwapStatus,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+/// TWAP state payload from `userTwapHistory`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TwapState {
+    pub coin: String,
+    pub user: Address,
+    pub side: String,
+    #[serde(deserialize_with = "deserialize_decimal_from_any")]
+    pub sz: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_from_any")]
+    pub executed_sz: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_from_any")]
+    pub executed_ntl: Decimal,
+    pub minutes: u64,
+    pub reduce_only: bool,
+    pub randomize: bool,
+    pub timestamp: u64,
+}
+
+/// One TWAP history entry.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TwapHistory {
+    pub state: TwapState,
+    pub status: TwapHistoryStatus,
+    pub time: u64,
+}
+
+/// `userTwapHistory` feed payload.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserTwapHistory {
+    #[serde(default)]
+    pub is_snapshot: bool,
+    pub user: Address,
+    #[serde(default)]
+    pub history: Vec<TwapHistory>,
 }
 
 /// Order details.
@@ -2754,6 +3049,13 @@ pub(super) enum InfoRequest {
     UserFills {
         user: Address,
     },
+    UserFillsByTime {
+        user: Address,
+        #[serde(rename = "startTime")]
+        start_time: u64,
+        #[serde(rename = "endTime", skip_serializing_if = "Option::is_none")]
+        end_time: Option<u64>,
+    },
     OrderStatus {
         user: Address,
         #[serde(with = "super::utils::oid_or_cloid")]
@@ -2990,6 +3292,29 @@ mod tests {
     }
 
     #[test]
+    fn test_user_stream_subscription_roundtrip() {
+        let user: Address = "0x1234567890abcdef1234567890abcdef12345678"
+            .parse()
+            .unwrap();
+        let subs = vec![
+            Subscription::UserEvents { user },
+            Subscription::UserTwapSliceFills { user },
+            Subscription::UserTwapHistory { user },
+            Subscription::ActiveAssetData {
+                user,
+                coin: "BTC".to_string(),
+            },
+            Subscription::WebData2 { user },
+        ];
+
+        for sub in subs {
+            let json = serde_json::to_string(&sub).unwrap();
+            let parsed: Subscription = serde_json::from_str(&json).unwrap();
+            assert_eq!(sub, parsed);
+        }
+    }
+
+    #[test]
     fn test_incoming_candle() {
         let json = r#"{
             "channel": "candle",
@@ -3016,6 +3341,257 @@ mod tests {
                 assert_eq!(candle.close.to_string(), "1852.3");
             }
             _ => panic!("Expected Incoming::Candle"),
+        }
+    }
+
+    #[test]
+    fn test_incoming_user_events_funding() {
+        let json = r#"{
+            "channel":"userEvents",
+            "data":{
+                "funding":{
+                    "time":1710000000123,
+                    "coin":"BTC",
+                    "usdc":"-1.25",
+                    "szi":"0.5",
+                    "fundingRate":"0.0001"
+                }
+            }
+        }"#;
+
+        let incoming: Incoming = serde_json::from_str(json).unwrap();
+        match incoming {
+            Incoming::UserEvents(UserEvent::Funding { funding }) => {
+                assert_eq!(funding.coin, "BTC");
+                assert_eq!(funding.usdc.to_string(), "-1.25");
+                assert_eq!(funding.szi.to_string(), "0.5");
+                assert_eq!(funding.funding_rate.to_string(), "0.0001");
+            }
+            _ => panic!("Expected Incoming::UserEvents::Funding"),
+        }
+    }
+
+    #[test]
+    fn test_incoming_user_events_non_user_cancel() {
+        let json = r#"{
+            "channel":"userEvents",
+            "data":{
+                "nonUserCancel":[
+                    {"coin":"BTC","oid":77738308}
+                ]
+            }
+        }"#;
+
+        let incoming: Incoming = serde_json::from_str(json).unwrap();
+        match incoming {
+            Incoming::UserEvents(UserEvent::NonUserCancel { non_user_cancel }) => {
+                assert_eq!(non_user_cancel.len(), 1);
+                assert_eq!(non_user_cancel[0].coin, "BTC");
+                assert_eq!(non_user_cancel[0].oid, 77738308);
+            }
+            _ => panic!("Expected Incoming::UserEvents::NonUserCancel"),
+        }
+    }
+
+    #[test]
+    fn test_incoming_user_events_unknown_fallback() {
+        let json = r#"{
+            "channel":"userEvents",
+            "data":{"mystery":{"field":1}}
+        }"#;
+
+        let incoming: Incoming = serde_json::from_str(json).unwrap();
+        match incoming {
+            Incoming::UserEvents(UserEvent::Unknown(raw)) => {
+                assert_eq!(raw["mystery"]["field"], 1);
+            }
+            _ => panic!("Expected Incoming::UserEvents::Unknown"),
+        }
+    }
+
+    #[test]
+    fn test_incoming_active_asset_data_mixed_number_formats() {
+        let json = r#"{
+            "channel":"activeAssetData",
+            "data":{
+                "user":"0x1234567890abcdef1234567890abcdef12345678",
+                "coin":"BTC",
+                "leverage":{"type":"cross","value":5},
+                "maxTradeSzs":["12.5",8.75],
+                "availableToTrade":[3,"4.5"]
+            }
+        }"#;
+
+        let incoming: Incoming = serde_json::from_str(json).unwrap();
+        match incoming {
+            Incoming::ActiveAssetData(data) => {
+                assert_eq!(data.coin, "BTC");
+                assert_eq!(data.leverage.leverage_type, "cross");
+                assert_eq!(data.leverage.value.to_string(), "5");
+                assert_eq!(
+                    data.max_trade_szs_pair(),
+                    Some((Decimal::new(125, 1), Decimal::new(875, 2)))
+                );
+                assert_eq!(
+                    data.available_to_trade_pair(),
+                    Some((Decimal::new(3, 0), Decimal::new(45, 1)))
+                );
+            }
+            _ => panic!("Expected Incoming::ActiveAssetData"),
+        }
+    }
+
+    #[test]
+    fn test_incoming_user_twap_slice_fills() {
+        let json = r#"{
+            "channel":"userTwapSliceFills",
+            "data":{
+                "isSnapshot":true,
+                "user":"0x1234567890abcdef1234567890abcdef12345678",
+                "twapSliceFills":[
+                    {
+                        "twapId":42,
+                        "fill":{
+                            "coin":"BTC",
+                            "px":"95000.0",
+                            "sz":"0.01",
+                            "side":"B",
+                            "time":1710000000222,
+                            "startPosition":"0.0",
+                            "dir":"Open Long",
+                            "closedPnl":"0.0",
+                            "hash":"0xabc",
+                            "oid":1001,
+                            "crossed":true,
+                            "fee":"-0.01",
+                            "tid":555,
+                            "feeToken":"USDC"
+                        }
+                    }
+                ]
+            }
+        }"#;
+
+        let incoming: Incoming = serde_json::from_str(json).unwrap();
+        match incoming {
+            Incoming::UserTwapSliceFills(payload) => {
+                assert!(payload.is_snapshot);
+                assert_eq!(payload.twap_slice_fills.len(), 1);
+                assert_eq!(payload.twap_slice_fills[0].twap_id, 42);
+                assert_eq!(payload.twap_slice_fills[0].fill.coin, "BTC");
+                assert_eq!(payload.twap_slice_fills[0].fill.px.to_string(), "95000.0");
+            }
+            _ => panic!("Expected Incoming::UserTwapSliceFills"),
+        }
+    }
+
+    #[test]
+    fn test_incoming_user_twap_history() {
+        let json = r#"{
+            "channel":"userTwapHistory",
+            "data":{
+                "isSnapshot":false,
+                "user":"0x1234567890abcdef1234567890abcdef12345678",
+                "history":[
+                    {
+                        "state":{
+                            "coin":"BTC",
+                            "user":"0x1234567890abcdef1234567890abcdef12345678",
+                            "side":"buy",
+                            "sz":"0.5",
+                            "executedSz":0.25,
+                            "executedNtl":"23750.0",
+                            "minutes":30,
+                            "reduceOnly":false,
+                            "randomize":true,
+                            "timestamp":1710000000333
+                        },
+                        "status":{
+                            "status":"finished",
+                            "description":"completed"
+                        },
+                        "time":1710001800333
+                    }
+                ]
+            }
+        }"#;
+
+        let incoming: Incoming = serde_json::from_str(json).unwrap();
+        match incoming {
+            Incoming::UserTwapHistory(payload) => {
+                assert!(!payload.is_snapshot);
+                assert_eq!(payload.history.len(), 1);
+                let item = &payload.history[0];
+                assert_eq!(item.state.coin, "BTC");
+                assert_eq!(item.state.sz.to_string(), "0.5");
+                assert_eq!(item.state.executed_sz.to_string(), "0.25");
+                assert_eq!(item.status.description.as_deref(), Some("completed"));
+                assert!(matches!(item.status.status, TwapStatus::Finished));
+            }
+            _ => panic!("Expected Incoming::UserTwapHistory"),
+        }
+    }
+
+    #[test]
+    fn test_incoming_user_twap_history_without_description() {
+        let json = r#"{
+            "channel":"userTwapHistory",
+            "data":{
+                "isSnapshot":true,
+                "user":"0x1234567890abcdef1234567890abcdef12345678",
+                "history":[
+                    {
+                        "state":{
+                            "coin":"BTC",
+                            "user":"0x1234567890abcdef1234567890abcdef12345678",
+                            "side":"buy",
+                            "sz":"0.5",
+                            "executedSz":"0.0",
+                            "executedNtl":"0.0",
+                            "minutes":30,
+                            "reduceOnly":false,
+                            "randomize":false,
+                            "timestamp":1710000000333
+                        },
+                        "status":{
+                            "status":"activated"
+                        },
+                        "time":1710000000333
+                    }
+                ]
+            }
+        }"#;
+
+        let incoming: Incoming = serde_json::from_str(json).unwrap();
+        match incoming {
+            Incoming::UserTwapHistory(payload) => {
+                assert!(payload.is_snapshot);
+                assert_eq!(payload.history.len(), 1);
+                let item = &payload.history[0];
+                assert!(matches!(item.status.status, TwapStatus::Activated));
+                assert_eq!(item.status.description, None);
+            }
+            _ => panic!("Expected Incoming::UserTwapHistory"),
+        }
+    }
+
+    #[test]
+    fn test_incoming_web_data2_raw_payload() {
+        let json = r#"{
+            "channel":"webData2",
+            "data":{
+                "clearinghouseState":{"time":1710002000000},
+                "openOrders":[{"oid":1234}]
+            }
+        }"#;
+
+        let incoming: Incoming = serde_json::from_str(json).unwrap();
+        match incoming {
+            Incoming::WebData2(payload) => {
+                assert_eq!(payload["clearinghouseState"]["time"], 1710002000000u64);
+                assert_eq!(payload["openOrders"][0]["oid"], 1234u64);
+            }
+            _ => panic!("Expected Incoming::WebData2"),
         }
     }
 
@@ -3141,5 +3717,134 @@ mod tests {
 
         // Check timestamp
         assert_eq!(state.time, 1768397010203);
+    }
+
+    #[test]
+    fn trade_deserializes_with_users() {
+        let json = r#"{
+            "coin": "BTC",
+            "side": "B",
+            "px": "97000.0",
+            "sz": "0.5",
+            "time": 1700000000000,
+            "hash": "0xabc123",
+            "tid": 42,
+            "users": ["0x1111111111111111111111111111111111111111", "0x2222222222222222222222222222222222222222"]
+        }"#;
+        let trade: Trade = serde_json::from_str(json).unwrap();
+        let buyer: Address = "0x1111111111111111111111111111111111111111"
+            .parse()
+            .unwrap();
+        let seller: Address = "0x2222222222222222222222222222222222222222"
+            .parse()
+            .unwrap();
+        assert_eq!(trade.users[0], buyer);
+        assert_eq!(trade.users[1], seller);
+    }
+
+    #[test]
+    fn trade_deserializes_without_users() {
+        let json = r#"{
+            "coin": "BTC",
+            "side": "A",
+            "px": "97000.0",
+            "sz": "0.5",
+            "time": 1700000000000,
+            "hash": "0xabc123",
+            "tid": 42
+        }"#;
+        let trade: Trade = serde_json::from_str(json).unwrap();
+        assert_eq!(trade.users, [Address::ZERO, Address::ZERO]);
+    }
+
+    #[test]
+    fn taker_address_returns_buyer_on_bid() {
+        let json = r#"{
+            "coin": "BTC",
+            "side": "B",
+            "px": "97000.0",
+            "sz": "0.5",
+            "time": 1700000000000,
+            "hash": "0xabc123",
+            "tid": 42,
+            "users": ["0x1111111111111111111111111111111111111111", "0x2222222222222222222222222222222222222222"]
+        }"#;
+        let trade: Trade = serde_json::from_str(json).unwrap();
+        let buyer: Address = "0x1111111111111111111111111111111111111111"
+            .parse()
+            .unwrap();
+        assert_eq!(trade.taker_address(), buyer);
+    }
+
+    #[test]
+    fn taker_address_returns_seller_on_ask() {
+        let json = r#"{
+            "coin": "BTC",
+            "side": "A",
+            "px": "97000.0",
+            "sz": "0.5",
+            "time": 1700000000000,
+            "hash": "0xabc123",
+            "tid": 42,
+            "users": ["0x1111111111111111111111111111111111111111", "0x2222222222222222222222222222222222222222"]
+        }"#;
+        let trade: Trade = serde_json::from_str(json).unwrap();
+        let seller: Address = "0x2222222222222222222222222222222222222222"
+            .parse()
+            .unwrap();
+        assert_eq!(trade.taker_address(), seller);
+    }
+
+    #[test]
+    fn taker_address_returns_zero_when_users_absent() {
+        let json = r#"{
+            "coin": "BTC",
+            "side": "B",
+            "px": "97000.0",
+            "sz": "0.5",
+            "time": 1700000000000,
+            "hash": "0xabc123",
+            "tid": 42
+        }"#;
+        let trade: Trade = serde_json::from_str(json).unwrap();
+        assert_eq!(trade.taker_address(), Address::ZERO);
+    }
+
+    #[test]
+    fn maker_address_returns_seller_on_bid() {
+        let json = r#"{
+            "coin": "BTC",
+            "side": "B",
+            "px": "97000.0",
+            "sz": "0.5",
+            "time": 1700000000000,
+            "hash": "0xabc123",
+            "tid": 42,
+            "users": ["0x1111111111111111111111111111111111111111", "0x2222222222222222222222222222222222222222"]
+        }"#;
+        let trade: Trade = serde_json::from_str(json).unwrap();
+        let seller: Address = "0x2222222222222222222222222222222222222222"
+            .parse()
+            .unwrap();
+        assert_eq!(trade.maker_address(), seller);
+    }
+
+    #[test]
+    fn maker_address_returns_buyer_on_ask() {
+        let json = r#"{
+            "coin": "BTC",
+            "side": "A",
+            "px": "97000.0",
+            "sz": "0.5",
+            "time": 1700000000000,
+            "hash": "0xabc123",
+            "tid": 42,
+            "users": ["0x1111111111111111111111111111111111111111", "0x2222222222222222222222222222222222222222"]
+        }"#;
+        let trade: Trade = serde_json::from_str(json).unwrap();
+        let buyer: Address = "0x1111111111111111111111111111111111111111"
+            .parse()
+            .unwrap();
+        assert_eq!(trade.maker_address(), buyer);
     }
 }

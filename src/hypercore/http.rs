@@ -424,6 +424,23 @@ impl Client {
         Ok(data)
     }
 
+    /// Returns the user's fills by time.
+    pub async fn user_fills_by_time(&self, user: Address, start_time: u64, end_time: Option<u64>) -> Result<Vec<Fill>> {
+        let mut api_url = self.base_url.clone();
+        api_url.set_path("/info");
+
+        let data = self
+            .http_client
+            .post(api_url)
+            .json(&InfoRequest::UserFillsByTime { user, start_time, end_time })
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        Ok(data)
+    }
+
     /// Returns the status of an order.
     pub async fn order_status(
         &self,

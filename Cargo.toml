@@ -1,7 +1,7 @@
 ## Package metadata
 [package]
 name = "hypersdk"
-version = "0.2.2"
+version = "0.2.5"
 edition = "2024"
 authors = ["Dario <dario@infinitefieldtrading.com>"]
 license = "MPL-2.0"
@@ -94,6 +94,10 @@ path = "examples/hypercore/transfer_to_spot.rs"
 [[example]]
 name = "websocket"
 path = "examples/hypercore/websocket.rs"
+
+[[example]]
+name = "websocket-user-events"
+path = "examples/hypercore/websocket-user-events.rs"
 
 [[example]]
 name = "vault_details"
