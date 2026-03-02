@@ -89,7 +89,6 @@ pub(super) mod solidity;
 
 // Re-export important raw types for convenience
 pub use api::{Action, ActionRequest, MultiSigAction, MultiSigPayload};
-
 // Import from raw module (which is now a submodule)
 use api::{SendAssetAction, SpotSendAction, UsdSendAction};
 

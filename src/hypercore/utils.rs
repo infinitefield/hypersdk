@@ -26,9 +26,10 @@ const HYPERLIQUID_EIP_PREFIX: &str = "HyperliquidTransaction:";
 ///
 /// Example: `dec!(10.0)` serializes as `"10"`, not `"10.0"`
 pub(super) mod decimal_normalized {
+    use std::str::FromStr;
+
     use rust_decimal::Decimal;
     use serde::{Deserialize, Deserializer, Serializer, de};
-    use std::str::FromStr;
 
     pub fn serialize<S>(value: &Decimal, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -91,7 +92,9 @@ pub(super) mod oid_or_cloid {
             }
 
             fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
-                v.parse::<Cloid>().map(Either::Right).map_err(de::Error::custom)
+                v.parse::<Cloid>()
+                    .map(Either::Right)
+                    .map_err(de::Error::custom)
             }
         }
 
