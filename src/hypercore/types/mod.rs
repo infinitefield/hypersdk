@@ -341,8 +341,12 @@ pub enum Subscription {
     #[display("activeAssetData({user},{coin})")]
     ActiveAssetData { user: Address, coin: String },
     /// Frontend-oriented aggregate user data feed
-    #[display("webData2({user})")]
-    WebData2 { user: Address },
+    #[display("webData2({user},{dex:?})")]
+    WebData2 {
+        user: Address,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        dex: Option<String>,
+    },
 }
 
 /// Hyperliquid websocket message.
@@ -436,7 +440,11 @@ pub enum Incoming {
     /// Real-time user asset limits/leverage for a perp asset
     ActiveAssetData(ActiveAssetData),
     /// Frontend aggregate user snapshot (dynamic schema)
-    WebData2(serde_json::Value),
+    WebData2 {
+        dex: Option<String>,
+        #[serde(flatten)]
+        data: serde_json::Value,
+    },
     /// Server heartbeat ping
     Ping,
     /// Server heartbeat pong
@@ -3344,7 +3352,7 @@ mod tests {
                 user,
                 coin: "BTC".to_string(),
             },
-            Subscription::WebData2 { user },
+            Subscription::WebData2 { user, dex: None },
         ];
 
         for sub in subs {
@@ -3627,7 +3635,7 @@ mod tests {
 
         let incoming: Incoming = serde_json::from_str(json).unwrap();
         match incoming {
-            Incoming::WebData2(payload) => {
+            Incoming::WebData2 { data: payload, .. } => {
                 assert_eq!(payload["clearinghouseState"]["time"], 1710002000000u64);
                 assert_eq!(payload["openOrders"][0]["oid"], 1234u64);
             }

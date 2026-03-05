@@ -50,7 +50,7 @@ async fn main() -> anyhow::Result<()> {
         user: args.user,
         coin: args.coin.clone(),
     });
-    ws.subscribe(Subscription::WebData2 { user: args.user });
+    ws.subscribe(Subscription::WebData2 { user: args.user, dex: None });
 
     log::info!(
         "Subscribed for user={} coin={}. Waiting for events...",
@@ -132,7 +132,7 @@ async fn main() -> anyhow::Result<()> {
                         data.coin, data.leverage.leverage_type, data.leverage.value, max_sz, avail
                     );
                 }
-                Incoming::WebData2(payload) => {
+                Incoming::WebData2 { data: payload, .. } => {
                     let keys = payload.as_object().map(|m| m.len()).unwrap_or(0);
                     println!("webData2: object_keys={}", keys);
                 }
