@@ -454,7 +454,7 @@ impl Client {
         &self,
         user: Address,
         oid: OidOrCloid,
-    ) -> Result<Option<OrderUpdate>> {
+    ) -> Result<Option<OrderUpdate<BasicOrder>>> {
         let mut api_url = self.base_url.clone();
         api_url.set_path("/info");
 
@@ -462,7 +462,7 @@ impl Client {
         #[serde(rename_all = "camelCase")]
         #[serde(tag = "status")]
         enum Response {
-            Order { order: OrderUpdate },
+            Order { order: OrderUpdate<BasicOrder> },
             UnknownOid,
         }
 
