@@ -57,7 +57,7 @@ use url::Url;
 use super::{AssetTarget, signing::*};
 use crate::hypercore::{
     ActionError, ApiAgent, CandleInterval, Chain, Cloid, Dex, MultiSigConfig, OidOrCloid,
-    PerpMarket, Signature, SpotMarket, SpotToken,
+    OrderUpdate, PerpMarket, Signature, SpotMarket, SpotToken,
     api::{
         Action, ActionRequest, ApproveAgent, ConvertToMultiSigUser, OkResponse, Response,
         SignersConfig,
@@ -65,9 +65,8 @@ use crate::hypercore::{
     mainnet_url, testnet_url,
     types::{
         BasicOrder, BatchCancel, BatchCancelCloid, BatchModify, BatchOrder, ClearinghouseState,
-        Fill, FundingRate, InfoRequest, OrderResponseStatus, OrderUpdate, ScheduleCancel,
-        SendAsset, SendToken, SpotSend, SubAccount, UsdSend, UserBalance, UserRole,
-        UserVaultEquity, VaultDetails,
+        Fill, FundingRate, InfoRequest, OrderResponseStatus, ScheduleCancel, SendAsset, SendToken,
+        SpotSend, SubAccount, UsdSend, UserBalance, UserRole, UserVaultEquity, VaultDetails,
     },
 };
 
