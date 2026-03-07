@@ -588,7 +588,7 @@ impl FillsCmd {
                 Event::Connected => eprintln!("Connected"),
                 Event::Disconnected => eprintln!("Disconnected, reconnecting..."),
                 Event::Message(msg) => match msg {
-                    Incoming::UserFills { user, fills } => {
+                    Incoming::UserFills { user, fills, .. } => {
                         for fill in fills {
                             match self.format {
                                 OutputFormat::Pretty => {

@@ -13,6 +13,7 @@ use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
+use super::solidity;
 use crate::hypercore::{
     Chain,
     types::{
@@ -21,8 +22,6 @@ use crate::hypercore::{
     },
     utils::{self, get_typed_data},
 };
-
-use super::solidity;
 
 /// Request for an action.
 ///

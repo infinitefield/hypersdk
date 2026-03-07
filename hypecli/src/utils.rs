@@ -7,13 +7,17 @@
 //! - Signing multi-sig actions
 //! - Parsing unified asset name formats
 //! - Keystore directory management
+//! - Fuzzy matching for better error messages
+//! - Common query arguments and formatting
 
 use std::path::PathBuf;
 use std::{env::home_dir, str::FromStr};
 
 use alloy::signers::{self, Signer, ledger::LedgerSigner};
 use anyhow::Context;
+use clap::ValueEnum;
 use hypersdk::{Address, hypercore::PrivateKeySigner};
+use strsim::levenshtein;
 use iroh::{
     Endpoint, SecretKey,
     discovery::{dns::DnsDiscovery, mdns::MdnsDiscovery},
@@ -23,6 +27,54 @@ use iroh_tickets::endpoint::EndpointTicket;
 use hypersdk::hypercore::{HttpClient, PerpMarket, SpotMarket};
 
 use crate::SignerArgs;
+
+/// Find similar symbols to a given input string.
+///
+/// Returns the top 3 closest matches from the candidates, sorted by
+/// Levenshtein distance. Only returns matches within a reasonable
+/// distance threshold (max 3 edits for typical ticker symbols).
+fn find_similar_symbols(candidates: &[&str], input: &str, max_results: usize) -> Vec<String> {
+    let mut scored: Vec<(usize, &str)> = candidates
+        .iter()
+        .copied()
+        .filter(|c| !c.eq_ignore_ascii_case(input))
+        .map(|c| (levenshtein(c, input), c))
+        .filter(|(dist, _)| *dist <= 3) // Only reasonable matches
+        .collect();
+
+    scored.sort_by_key(|&(dist, _)| dist);
+    scored.truncate(max_results);
+
+    scored.into_iter().map(|(_, sym)| sym.to_string()).collect()
+}
+
+/// Output format for CLI commands.
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+pub enum OutputFormat {
+    /// Human-readable formatted output
+    #[default]
+    Pretty,
+    /// Tab-aligned table output
+    Table,
+    /// JSON output for programmatic consumption
+    Json,
+}
+
+/// Common query arguments for order/fills queries.
+#[derive(clap::Args)]
+pub struct QueryArgs {
+    /// Filter by status (open, filled, canceled, all)
+    #[arg(long, default_value = "all")]
+    pub status: String,
+    
+    /// Output format
+    #[arg(long, default_value = "pretty")]
+    pub format: OutputFormat,
+    
+    /// Limit number of results
+    #[arg(long, default_value = "100")]
+    pub limit: usize,
+}
 
 /// Get the default keystore directory path (~/.foundry/keystores).
 pub fn keystore_dir() -> anyhow::Result<PathBuf> {
@@ -259,7 +311,7 @@ pub async fn resolve_asset(client: &HttpClient, asset: &str) -> anyhow::Result<u
     match spec {
         AssetSpec::Perp(symbol) => {
             let perps = client.perps().await?;
-            find_perp_index(&perps, symbol, None)
+            find_perp_index(&perps, symbol)
         }
         AssetSpec::Spot(base, quote) => {
             let spots = client.spot().await?;
@@ -275,33 +327,91 @@ pub async fn resolve_asset(client: &HttpClient, asset: &str) -> anyhow::Result<u
 
             // Then get perps from that DEX
             let perps = client.perps_from(dex.clone()).await?;
-            find_perp_index(&perps, symbol, Some(dex_name))
+            find_perp_index_with_dex(&perps, symbol, Some(dex_name))
         }
     }
 }
 
-/// Find a perpetual market index by symbol.
-///
-/// Handles both regular perps (name = "BTC") and HIP3 perps (name = "xyz:BTC").
-fn find_perp_index(
+/// Find a perpetual market index by symbol with fuzzy matching suggestions.
+fn find_perp_index(perps: &[PerpMarket], symbol: &str) -> anyhow::Result<usize> {
+    // First try exact match
+    if let Some(index) = perps
+        .iter()
+        .position(|p| p.name.eq_ignore_ascii_case(symbol))
+    {
+        return Ok(index);
+    }
+    
+    // Extract all candidate symbols for fuzzy matching
+    let candidates: Vec<&str> = perps
+        .iter()
+        .map(|p| {
+            // For HIP3 format "dex:symbol", use just the symbol part
+            if let Some((_dex, sym)) = p.name.split_once(':') {
+                sym
+            } else {
+                &p.name
+            }
+        })
+        .collect();
+    
+    // Find similar symbols
+    let similar = find_similar_symbols(&candidates, symbol, 3);
+    
+    if similar.is_empty() {
+        Err(anyhow::anyhow!(
+            "Perpetual market '{}' not found. Use 'hypecli perps' to list available markets.",
+            symbol
+        ))
+    } else {
+        let suggestions = similar.join(", ");
+        Err(anyhow::anyhow!(
+            "Perpetual market '{}' not found. Did you mean: {}?",
+            symbol,
+            suggestions
+        ))
+    }
+}
+
+/// Find a perpetual market index for HIP3 perps with fuzzy matching.
+fn find_perp_index_with_dex(
     perps: &[PerpMarket],
     symbol: &str,
-    dex_name: Option<&str>,
+    _dex_name: Option<&str>,
 ) -> anyhow::Result<usize> {
-    perps
+    // First try exact match
+    if let Some(index) = perps.iter().position(|p| perp_name_matches(&p.name, symbol)) {
+        return Ok(index);
+    }
+    
+    // Extract all candidate symbols for fuzzy matching
+    let candidates: Vec<&str> = perps
         .iter()
-        .find(|p| perp_name_matches(&p.name, symbol))
-        .map(|p| p.index)
-        .ok_or_else(|| {
-            let dex_desc = dex_name
-                .map(|d| format!(" on {} DEX", d))
-                .unwrap_or_default();
-            anyhow::anyhow!(
-                "Perpetual market '{}'{} not found. Use 'hypecli perps' to list available markets.",
-                symbol,
-                dex_desc
-            )
+        .map(|p| {
+            if let Some((_dex, sym)) = p.name.split_once(':') {
+                sym
+            } else {
+                &p.name
+            }
         })
+        .collect();
+    
+    // Find similar symbols
+    let similar = find_similar_symbols(&candidates, symbol, 3);
+    
+    if similar.is_empty() {
+        Err(anyhow::anyhow!(
+            "Perpetual market '{}' not found. Use 'hypecli perps' to list available markets.",
+            symbol
+        ))
+    } else {
+        let suggestions = similar.join(", ");
+        Err(anyhow::anyhow!(
+            "Perpetual market '{}' not found. Did you mean: {}?",
+            symbol,
+            suggestions
+        ))
+    }
 }
 
 /// Check if a perp market name matches the given symbol.
@@ -320,21 +430,46 @@ fn perp_name_matches(name: &str, symbol: &str) -> bool {
     false
 }
 
-/// Find a spot market index by base and quote symbols.
+/// Find a spot market index by base and quote symbols with fuzzy matching.
 fn find_spot_index(spots: &[SpotMarket], base: &str, quote: &str) -> anyhow::Result<usize> {
-    spots
-        .iter()
-        .find(|s| {
-            s.base().name.eq_ignore_ascii_case(base) && s.quote().name.eq_ignore_ascii_case(quote)
-        })
-        .map(|s| s.index)
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "Spot market '{}/{}' not found. Use 'hypecli spot' to list available markets.",
-                base,
-                quote
-            )
-        })
+    // First try exact match
+    if let Some(index) = spots.iter().position(|s| {
+        s.base().name.eq_ignore_ascii_case(base) && s.quote().name.eq_ignore_ascii_case(quote)
+    }) {
+        return Ok(index);
+    }
+    
+    // Try fuzzy match on base
+    let base_candidates: Vec<&str> = spots.iter().map(|s| s.base().name.as_str()).collect();
+    let similar_base = find_similar_symbols(&base_candidates, base, 3);
+    
+    if !similar_base.is_empty() {
+        let suggestions = similar_base.join(", ");
+        return Err(anyhow::anyhow!(
+            "Spot market base '{}' not found. Did you mean: {}?",
+            base,
+            suggestions
+        ));
+    }
+    
+    // Try fuzzy match on quote
+    let quote_candidates: Vec<&str> = spots.iter().map(|s| s.quote().name.as_str()).collect();
+    let similar_quote = find_similar_symbols(&quote_candidates, quote, 3);
+    
+    if !similar_quote.is_empty() {
+        let suggestions = similar_quote.join(", ");
+        return Err(anyhow::anyhow!(
+            "Spot market quote '{}' not found. Did you mean: {}?",
+            quote,
+            suggestions
+        ));
+    }
+    
+    Err(anyhow::anyhow!(
+        "Spot market '{}/{}' not found. Use 'hypecli spot' to list available markets.",
+        base,
+        quote
+    ))
 }
 
 /// Resolved asset information for subscriptions.
@@ -371,7 +506,7 @@ pub async fn resolve_asset_for_subscription(
             let perps = client.perps().await?;
             let perp = perps
                 .iter()
-                .find(|p| p.name.eq_ignore_ascii_case(symbol))
+                .find(|p| perp_name_matches(&p.name, symbol))
                 .ok_or_else(|| {
                     anyhow::anyhow!(
                         "Perpetual market '{}' not found. Use 'hypecli perps' to list available markets.",

@@ -425,14 +425,23 @@ impl Client {
     }
 
     /// Returns the user's fills by time.
-    pub async fn user_fills_by_time(&self, user: Address, start_time: u64, end_time: Option<u64>) -> Result<Vec<Fill>> {
+    pub async fn user_fills_by_time(
+        &self,
+        user: Address,
+        start_time: u64,
+        end_time: Option<u64>,
+    ) -> Result<Vec<Fill>> {
         let mut api_url = self.base_url.clone();
         api_url.set_path("/info");
 
         let data = self
             .http_client
             .post(api_url)
-            .json(&InfoRequest::UserFillsByTime { user, start_time, end_time })
+            .json(&InfoRequest::UserFillsByTime {
+                user,
+                start_time,
+                end_time,
+            })
             .send()
             .await?
             .json()
@@ -1609,22 +1618,18 @@ impl Client {
 
         async move {
             let req = res?;
-            let res = http_client
-                .post(url)
-                .json(&req)
-                .send()
-                .await?;
+            let res = http_client.post(url).json(&req).send().await?;
 
             let status = res.status();
             let text = res.text().await?;
-            
+
             if !status.is_success() {
                 return Err(anyhow!("HTTP {status} body={text}"));
             }
-            
+
             let parsed = serde_json::from_str(&text)
                 .map_err(|e| anyhow!("decode failed: {e}; body={text}"))?;
-            
+
             Ok(parsed)
         }
     }

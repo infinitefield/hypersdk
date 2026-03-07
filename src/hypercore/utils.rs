@@ -26,9 +26,10 @@ const HYPERLIQUID_EIP_PREFIX: &str = "HyperliquidTransaction:";
 ///
 /// Example: `dec!(10.0)` serializes as `"10"`, not `"10.0"`
 pub(super) mod decimal_normalized {
+    use std::str::FromStr;
+
     use rust_decimal::Decimal;
     use serde::{Deserialize, Deserializer, Serializer, de};
-    use std::str::FromStr;
 
     pub fn serialize<S>(value: &Decimal, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -91,7 +92,9 @@ pub(super) mod oid_or_cloid {
             }
 
             fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
-                v.parse::<Cloid>().map(Either::Right).map_err(de::Error::custom)
+                v.parse::<Cloid>()
+                    .map(Either::Right)
+                    .map_err(de::Error::custom)
             }
         }
 
@@ -114,6 +117,33 @@ where
 {
     let s = String::deserialize(deserializer)?;
     s.parse::<Cloid>().map_err(serde::de::Error::custom)
+}
+
+/// Returns `true` if the cloid is zero (used for `skip_serializing_if`).
+///
+/// When the cloid is zero/default, the field is omitted from serialization
+/// to match the Python SDK and server-side hashing behavior.
+pub(super) fn is_cloid_zero(value: &Cloid) -> bool {
+    value.is_zero()
+}
+
+/// Serializes a non-zero cloid as a hex string (same as `serialize_cloid_as_hex`).
+///
+/// This is used in combination with `skip_serializing_if = "is_cloid_zero"` so this
+/// function is only called for non-zero cloids.
+pub(super) fn serialize_cloid_option<S>(value: &Cloid, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serialize_cloid_as_hex(value, serializer)
+}
+
+/// Deserializes a cloid from a hex string, defaulting to zero if absent.
+pub(super) fn deserialize_cloid_option<'de, D>(deserializer: D) -> Result<Cloid, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserialize_cloid_from_hex(deserializer)
 }
 
 /// Serializes an address as a hex string.
