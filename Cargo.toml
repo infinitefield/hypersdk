@@ -104,6 +104,10 @@ name = "vault_details"
 path = "examples/hypercore/vault_details.rs"
 
 [[example]]
+name = "vault_transfer"
+path = "examples/hypercore/vault_transfer.rs"
+
+[[example]]
 name = "user_vault_equities"
 path = "examples/hypercore/user_vault_equities.rs"
 

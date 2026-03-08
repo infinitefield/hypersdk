@@ -51,6 +51,7 @@ use alloy::{
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 use serde::Deserialize;
 use url::Url;
 
@@ -60,7 +61,7 @@ use crate::hypercore::{
     PerpMarket, Signature, SpotMarket, SpotToken,
     api::{
         Action, ActionRequest, ApproveAgent, ConvertToMultiSigUser, OkResponse, Response,
-        SignersConfig,
+        SignersConfig, VaultTransfer,
     },
     mainnet_url, testnet_url,
     types::{
@@ -1464,6 +1465,39 @@ impl Client {
                 anyhow::bail!("send_usdc: {err}")
             }
             _ => anyhow::bail!("send_usdc: unexpected response type: {resp:?}"),
+        }
+    }
+
+    /// Deposit or withdraw USDC from a vault.
+    ///
+    /// # Parameters
+    ///
+    /// - `signer`: The signer for signing the action
+    /// - `vault_address`: The vault to deposit into or withdraw from
+    /// - `usd`: Amount of USDC (e.g. `dec!(100.5)` for $100.50; converted internally to micro-units)
+    /// - `nonce`: Unique nonce (typically current timestamp in milliseconds)
+    /// - `is_deposit`: `true` to deposit, `false` to withdraw
+    ///
+    /// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#vault-transfer>
+    pub async fn vault_transfer<S: SignerSync>(
+        &self,
+        signer: &S,
+        vault_address: Address,
+        usd: Decimal,
+        nonce: u64,
+        is_deposit: bool,
+    ) -> Result<()> {
+        let usd_raw = (usd * rust_decimal::Decimal::from(1_000_000))
+            .to_u64()
+            .ok_or_else(|| anyhow::anyhow!("vault_transfer: usd amount out of range: {usd}"))?;
+        let action = VaultTransfer { vault_address, is_deposit, usd: usd_raw };
+        let resp = self
+            .sign_and_send_sync(signer, action, nonce, None, None)
+            .await?;
+        match resp {
+            Response::Ok(OkResponse::Default) => Ok(()),
+            Response::Err(err) => anyhow::bail!("vault_transfer: {err}"),
+            _ => anyhow::bail!("vault_transfer: unexpected response type: {resp:?}"),
         }
     }
 
