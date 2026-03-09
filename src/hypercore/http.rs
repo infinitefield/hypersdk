@@ -151,6 +151,11 @@ impl Client {
         Self { base_url, ..self }
     }
 
+    #[must_use]
+    pub fn with_http_client(self, http_client: reqwest::Client) -> Self {
+        Self { http_client, ..self }
+    }
+
     /// Returns the chain this client is configured for.
     #[must_use]
     pub const fn chain(&self) -> Chain {
