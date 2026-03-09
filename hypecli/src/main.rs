@@ -8,6 +8,7 @@ mod send;
 mod subscribe;
 mod to_multisig;
 mod utils;
+mod vault;
 
 use account::AccountCmd;
 use balances::BalanceCmd;
@@ -20,6 +21,7 @@ use orders::OrderCmd;
 use send::SendCmd;
 use subscribe::SubscribeCmd;
 use to_multisig::ToMultiSigCmd;
+use vault::VaultCmd;
 
 /// Main CLI structure for hypecli - A command-line interface for Hyperliquid.
 #[derive(Parser)]
@@ -67,6 +69,9 @@ enum Command {
     Subscribe(SubscribeCmd),
     /// Send assets between accounts, DEXes, or subaccounts
     Send(SendCmd),
+    /// Vault deposit and withdrawal commands
+    #[command(subcommand)]
+    Vault(VaultCmd),
 }
 
 impl Command {
@@ -85,6 +90,7 @@ impl Command {
             Self::Order(cmd) => cmd.run().await,
             Self::Subscribe(cmd) => cmd.run().await,
             Self::Send(cmd) => cmd.run().await,
+            Self::Vault(cmd) => cmd.run().await,
         }
     }
 }
@@ -478,6 +484,27 @@ Send From Subaccount:
     --amount 100 \
     --from-subaccount my-sub \
     --destination 0xRECIPIENT
+
+VAULT COMMANDS
+--------------
+
+Deposit USDC into a vault:
+  hypecli vault deposit \
+    --chain mainnet \
+    --private-key <HEX> \
+    --vault <VAULT_ADDRESS> \
+    --amount 100
+
+Withdraw USDC from a vault:
+  hypecli vault withdraw \
+    --chain mainnet \
+    --private-key <HEX> \
+    --vault <VAULT_ADDRESS> \
+    --amount 100
+
+  Arguments:
+    --vault <ADDRESS>    Vault address to deposit into or withdraw from
+    --amount <DECIMAL>   Amount of USDC
 
 SUBSCRIBE COMMANDS (Real-time WebSocket Data)
 ---------------------------------------------
