@@ -103,7 +103,11 @@
 //!
 //! // Subscribe to market data
 //! ws.subscribe(Subscription::Trades { coin: "BTC".into() });
-//! ws.subscribe(Subscription::L2Book { coin: "ETH".into() });
+//! ws.subscribe(Subscription::L2Book {
+//!     coin: "ETH".into(),
+//!     n_sig_figs: None,
+//!     mantissa: None,
+//! });
 //! ws.subscribe(Subscription::Candle {
 //!     coin: "BTC".into(),
 //!     interval: "15m".into()

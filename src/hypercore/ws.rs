@@ -58,7 +58,11 @@
 //!
 //! // Subscribe to trades and orderbook
 //! ws.subscribe(Subscription::Trades { coin: "BTC".into() });
-//! ws.subscribe(Subscription::L2Book { coin: "BTC".into() });
+//! ws.subscribe(Subscription::L2Book {
+//!     coin: "BTC".into(),
+//!     n_sig_figs: None,
+//!     mantissa: None,
+//! });
 //!
 //! while let Some(event) = ws.next().await {
 //!     let Event::Message(msg) = event else { continue };
@@ -323,7 +327,11 @@ pub struct Connection {
 /// // Manage subscriptions in a separate task
 /// spawn(async move {
 ///     handle.subscribe(Subscription::Trades { coin: "BTC".into() });
-///     handle.subscribe(Subscription::L2Book { coin: "ETH".into() });
+///     handle.subscribe(Subscription::L2Book {
+///         coin: "ETH".into(),
+///         n_sig_figs: None,
+///         mantissa: None,
+///     });
 ///
 ///     // Later, unsubscribe
 ///     tokio::time::sleep(std::time::Duration::from_secs(60)).await;

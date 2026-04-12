@@ -46,7 +46,11 @@
 //!
 //! // Subscribe to trades and order book
 //! ws.subscribe(Subscription::Trades { coin: "BTC".into() });
-//! ws.subscribe(Subscription::L2Book { coin: "BTC".into() });
+//! ws.subscribe(Subscription::L2Book {
+//!     coin: "BTC".into(),
+//!     n_sig_figs: None,
+//!     mantissa: None,
+//! });
 //!
 //! while let Some(event) = ws.next().await {
 //!     let Event::Message(msg) = event else { continue };

@@ -309,7 +309,13 @@ pub enum Subscription {
     Trades { coin: String },
     /// Order book snapshots and updates
     #[display("l2Book({coin})")]
-    L2Book { coin: String },
+    L2Book {
+        coin: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        n_sig_figs: Option<u8>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mantissa: Option<u8>,
+    },
     /// Real-time candlestick updates
     #[display("candle({coin}@{interval})")]
     Candle { coin: String, interval: String },
