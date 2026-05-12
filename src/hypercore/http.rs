@@ -50,8 +50,7 @@ use alloy::{
 };
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
-use rust_decimal::Decimal;
-use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::{Decimal, prelude::ToPrimitive};
 use serde::Deserialize;
 use url::Url;
 

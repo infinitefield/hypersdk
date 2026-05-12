@@ -89,10 +89,9 @@ pub mod api;
 pub(super) mod solidity;
 
 // Re-export important raw types for convenience
-pub use api::AbstractionMode;
 pub use api::{
-    Action, ActionRequest, ApproveBuilderFee, GossipPriorityBid, MultiSigAction, MultiSigPayload,
-    OkResponse, Response, UserDexAbstractionAction, UserSetAbstractionAction,
+    AbstractionMode, Action, ActionRequest, ApproveBuilderFee, GossipPriorityBid, MultiSigAction,
+    MultiSigPayload, OkResponse, Response, UserDexAbstractionAction, UserSetAbstractionAction,
 };
 // Import from raw module (which is now a submodule)
 use api::{AgentSendAssetAction, SendAssetAction, SpotSendAction, UsdSendAction};

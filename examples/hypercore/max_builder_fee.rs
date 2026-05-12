@@ -28,7 +28,10 @@ async fn main() -> anyhow::Result<()> {
 
     println!("User:    {:?}", args.user);
     println!("Builder: {:?}", args.builder);
-    println!("Max approved builder fee: {} (tenths of a bps, e.g. 1 = 0.001%)", max_fee);
+    println!(
+        "Max approved builder fee: {} (tenths of a bps, e.g. 1 = 0.001%)",
+        max_fee
+    );
 
     Ok(())
 }

@@ -11,8 +11,7 @@
 //! Note: The fee is deducted from your **spot** HYPE balance and burned.
 
 use clap::Parser;
-use hypersdk::hypercore::types::GossipPriorityAuctionStatus;
-use hypersdk::{hypercore, hyperevm};
+use hypersdk::{hypercore, hypercore::types::GossipPriorityAuctionStatus, hyperevm};
 use rust_decimal::Decimal;
 
 mod credentials;
