@@ -61,7 +61,7 @@ use crate::hypercore::{
     OutcomeMeta, PerpMarket, Signature, SpotMarket, SpotToken,
     api::{
         Action, ActionRequest, ApproveAgent, ConvertToMultiSigUser, OkResponse, Response,
-        SignersConfig, VaultTransfer,
+        SignersConfig, UpdateLeverage, VaultTransfer,
     },
     mainnet_url, testnet_url,
     types::{
@@ -1521,6 +1521,33 @@ impl Client {
             Response::Ok(OkResponse::Default) => Ok(()),
             Response::Err(err) => anyhow::bail!("vault_transfer: {err}"),
             _ => anyhow::bail!("vault_transfer: unexpected response type: {resp:?}"),
+        }
+    }
+
+    /// Set leverage for an asset.
+    ///
+    /// Pass `vault_address = Some(subaccount)` to set leverage for a subaccount,
+    /// signing from the master signer.
+    ///
+    /// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#update-leverage>
+    pub async fn update_leverage<S: SignerSync>(
+        &self,
+        signer: &S,
+        asset: usize,
+        is_cross: bool,
+        leverage: u32,
+        nonce: u64,
+        vault_address: Option<Address>,
+        expires_after: Option<DateTime<Utc>>,
+    ) -> Result<()> {
+        let action = UpdateLeverage { asset, is_cross, leverage };
+        let resp = self
+            .sign_and_send_sync(signer, action, nonce, vault_address, expires_after)
+            .await?;
+        match resp {
+            Response::Ok(OkResponse::Default) => Ok(()),
+            Response::Err(err) => anyhow::bail!("update_leverage: {err}"),
+            _ => anyhow::bail!("update_leverage: unexpected response type: {resp:?}"),
         }
     }
 

@@ -87,6 +87,8 @@ pub enum Action {
     ApproveAgent(ApproveAgent),
     /// Convert to multi-signature user.
     ConvertToMultiSigUser(ConvertToMultiSigUser),
+    /// Update leverage for an asset.
+    UpdateLeverage(UpdateLeverage),
     /// Update isolated margin.
     UpdateIsolatedMargin(UpdateIsolatedMargin),
     /// Deposit or withdraw from a vault.
@@ -193,6 +195,7 @@ impl Action {
             | Action::CancelByCloid(_)
             | Action::ScheduleCancel(_)
             | Action::EvmUserModify { .. }
+            | Action::UpdateLeverage(_)
             | Action::UpdateIsolatedMargin(_)
             | Action::VaultTransfer(_)
             | Action::Noop => {
@@ -284,6 +287,7 @@ impl Action {
             | Action::CancelByCloid(_)
             | Action::ScheduleCancel(_)
             | Action::EvmUserModify { .. }
+            | Action::UpdateLeverage(_)
             | Action::UpdateIsolatedMargin(_)
             | Action::VaultTransfer(_)
             | Action::Noop => {
@@ -373,6 +377,7 @@ impl Action {
             | Action::CancelByCloid(_)
             | Action::ScheduleCancel(_)
             | Action::EvmUserModify { .. }
+            | Action::UpdateLeverage(_)
             | Action::UpdateIsolatedMargin(_)
             | Action::VaultTransfer(_)
             | Action::Noop => {
@@ -650,6 +655,20 @@ pub struct ConvertToMultiSigUser {
     pub signers: SignersConfig,
     /// Request nonce
     pub nonce: u64,
+}
+
+/// Request to set leverage for an asset.
+///
+/// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#update-leverage>
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateLeverage {
+    /// Asset index.
+    pub asset: usize,
+    /// `true` for cross margin, `false` for isolated.
+    pub is_cross: bool,
+    /// Target leverage (integer, e.g. 1, 10, 25).
+    pub leverage: u32,
 }
 
 /// Request to update isolated margin for a position.
