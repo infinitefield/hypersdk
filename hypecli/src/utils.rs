@@ -319,8 +319,8 @@ pub async fn resolve_asset(client: &HttpClient, asset: &str) -> anyhow::Result<u
         }
         AssetSpec::Hip3Perp(dex_name, symbol) => {
             // First get the DEX
-            let dexs = client.perp_dexs().await?;
-            let dex = dexs
+            let dexes = client.perp_dexes().await?;
+            let dex = dexes
                 .iter()
                 .find(|d| d.name().eq_ignore_ascii_case(dex_name))
                 .ok_or_else(|| anyhow::anyhow!("HIP3 DEX '{}' not found", dex_name))?;
@@ -540,8 +540,8 @@ pub async fn resolve_asset_for_subscription(
         }
         AssetSpec::Hip3Perp(dex_name, symbol) => {
             // First get the DEX
-            let dexs = client.perp_dexs().await?;
-            let dex = dexs
+            let dexes = client.perp_dexes().await?;
+            let dex = dexes
                 .iter()
                 .find(|d| d.name().eq_ignore_ascii_case(dex_name))
                 .ok_or_else(|| anyhow::anyhow!("HIP3 DEX '{}' not found", dex_name))?;

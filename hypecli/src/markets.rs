@@ -41,7 +41,7 @@ impl PerpsCmd {
         let core = hypercore::mainnet();
 
         let perps = if let Some(dex_name) = &self.dex {
-            let dexes = core.perp_dexs().await?;
+            let dexes = core.perp_dexes().await?;
             let dex = dexes
                 .iter()
                 .find(|d| d.name().eq_ignore_ascii_case(dex_name))
@@ -103,7 +103,7 @@ pub struct DexesCmd;
 impl DexesCmd {
     pub async fn run(self) -> anyhow::Result<()> {
         let core = hypercore::mainnet();
-        let dexes = core.perp_dexs().await?;
+        let dexes = core.perp_dexes().await?;
 
         println!("name");
         for dex in dexes {

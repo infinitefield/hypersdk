@@ -99,7 +99,7 @@ impl BalanceCmd {
         // Query all DEXes (unless --skip-hip3 is set)
         let mut dex_states = Vec::new();
         if !self.skip_hip3 {
-            let dexes = core.perp_dexs().await?;
+            let dexes = core.perp_dexes().await?;
             for dex in &dexes {
                 let dex_name = dex.name();
                 let state = core
