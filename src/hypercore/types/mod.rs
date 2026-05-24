@@ -3619,6 +3619,7 @@ pub(super) enum InfoRequest {
     /// Query gossip priority auction status.
     GossipPriorityAuctionStatus,
     /// Query account abstraction mode for a user.
+    #[serde(rename = "userAbstraction")]
     AbstractionMode {
         user: Address,
     },

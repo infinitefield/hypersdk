@@ -11,6 +11,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `BasicOrder` trigger-order fields from `frontendOpenOrders`: `is_trigger`, `trigger_px`, `trigger_condition`, `is_position_tpsl`
 - `OrderResponseStatus::WaitingForTrigger` and `WaitingForFill` order response variants
 
+### Fixed
+
+- Use `userAbstraction` as the info request type for `AbstractionMode` queries
+
 ## [v0.2.10]
 
 ### Added
