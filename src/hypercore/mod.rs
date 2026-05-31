@@ -107,7 +107,7 @@ use anyhow::Context;
 use chrono::Utc;
 use either::Either;
 /// Re-export error types.
-pub use error::{ActionError, Error};
+pub use error::{ActionError, ApiError};
 use reqwest::IntoUrl;
 use rust_decimal::{Decimal, MathematicalOps, RoundingStrategy, prelude::ToPrimitive};
 use serde::{Deserialize, Serialize};

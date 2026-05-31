@@ -48,7 +48,9 @@ use alloy::{
     primitives::Address,
     signers::{Signer, SignerSync},
 };
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
+
+use super::ApiError;
 use chrono::{DateTime, Utc};
 use rust_decimal::{Decimal, prelude::ToPrimitive};
 use serde::Deserialize;
@@ -395,11 +397,11 @@ impl Client {
         let text = String::from_utf8_lossy(&bytes);
 
         if !status.is_success() {
-            return Err(anyhow!("[{label}] HTTP {status} body={text}"));
+            return Err(ApiError(format!("[{label}] HTTP {status} body={text}")).into());
         }
 
         serde_json::from_str(&text)
-            .map_err(|e| anyhow!("[{label}] decode failed: {e}; body={text}"))
+            .with_context(|| format!("[{label}] body={text}"))
     }
 
     /// Returns all open orders for a user.
@@ -1055,13 +1057,7 @@ impl Client {
             )
             .await?;
 
-        match resp {
-            Response::Ok(OkResponse::Default) => Ok(()),
-            Response::Err(err) => {
-                anyhow::bail!("schedule_cancel: {err}")
-            }
-            _ => anyhow::bail!("schedule_cancel: unexpected response type: {resp:?}"),
-        }
+        resp.into_default()
     }
 
     /// Places a batch of orders.
@@ -1191,9 +1187,9 @@ impl Client {
             builder,
         };
 
-        self.place(signer, batch, nonce, vault_address, expires_after)
-            .await
-            .map_err(|err| anyhow::anyhow!("{err}"))
+        Ok(self
+            .place(signer, batch, nonce, vault_address, expires_after)
+            .await?)
     }
 
     /// Cancel a batch of orders by exchange-assigned order ID (OID).
@@ -1354,13 +1350,7 @@ impl Client {
         let resp = self
             .sign_and_send(signer, approve_agent, nonce, None, None)
             .await?;
-        match resp {
-            Response::Ok(OkResponse::Default) => Ok(()),
-            Response::Err(err) => {
-                anyhow::bail!("approve_agent: {err}")
-            }
-            _ => anyhow::bail!("approve_agent: unexpected response type: {resp:?}"),
-        }
+        resp.into_default()
     }
 
     /// Approve the maximum fee rate a builder can charge for routed orders.
@@ -1389,13 +1379,7 @@ impl Client {
         let resp = self
             .sign_and_send(signer, approve_builder_fee, nonce, None, None)
             .await?;
-        match resp {
-            Response::Ok(OkResponse::Default) => Ok(()),
-            Response::Err(err) => {
-                anyhow::bail!("approve_builder_fee: {err}")
-            }
-            _ => anyhow::bail!("approve_builder_fee: unexpected response type: {resp:?}"),
-        }
+        resp.into_default()
     }
 
     /// Convert account to multi-signature user.
@@ -1457,13 +1441,7 @@ impl Client {
         let resp = self
             .sign_and_send(signer, convert, nonce, None, None)
             .await?;
-        match resp {
-            Response::Ok(OkResponse::Default) => Ok(()),
-            Response::Err(err) => {
-                anyhow::bail!("convert_to_multisig: {err}")
-            }
-            _ => anyhow::bail!("convert_to_multisig: unexpected response type: {resp:?}"),
-        }
+        resp.into_default()
     }
 
     /// Helper function to transfer from spot Core balance to HyperEVM.
@@ -1486,7 +1464,7 @@ impl Client {
     ) -> Result<()> {
         let destination = token
             .cross_chain_address
-            .ok_or_else(|| anyhow::anyhow!("token {token} doesn't have a cross chain address"))?;
+            .ok_or_else(|| anyhow!("token {token} doesn't have a cross chain address"))?;
 
         self.spot_send(
             &signer,
@@ -1520,7 +1498,7 @@ impl Client {
         nonce: u64,
     ) -> Result<()> {
         if token.name != "USDC" {
-            return Err(anyhow::anyhow!(
+            return Err(anyhow!(
                 "only USDC is accepted, tried to transfer {}",
                 token.name
             ));
@@ -1561,7 +1539,7 @@ impl Client {
         nonce: u64,
     ) -> Result<()> {
         if token.name != "USDC" {
-            return Err(anyhow::anyhow!(
+            return Err(anyhow!(
                 "only USDC is accepted, tried to transfer {}",
                 token.name
             ));
@@ -1605,13 +1583,7 @@ impl Client {
         let resp = self
             .sign_and_send_sync(signer, send.into_action(self.chain), nonce, None, None)
             .await?;
-        match resp {
-            Response::Ok(OkResponse::Default) => Ok(()),
-            Response::Err(err) => {
-                anyhow::bail!("send_usdc: {err}")
-            }
-            _ => anyhow::bail!("send_usdc: unexpected response type: {resp:?}"),
-        }
+        resp.into_default()
     }
 
     /// Deposit or withdraw USDC from a vault.
@@ -1635,7 +1607,7 @@ impl Client {
     ) -> Result<()> {
         let usd_raw = (usd * rust_decimal::Decimal::from(1_000_000))
             .to_u64()
-            .ok_or_else(|| anyhow::anyhow!("vault_transfer: usd amount out of range: {usd}"))?;
+            .ok_or_else(|| anyhow!("vault_transfer: usd amount out of range: {usd}"))?;
         let action = VaultTransfer {
             vault_address,
             is_deposit,
@@ -1644,11 +1616,7 @@ impl Client {
         let resp = self
             .sign_and_send_sync(signer, action, nonce, None, None)
             .await?;
-        match resp {
-            Response::Ok(OkResponse::Default) => Ok(()),
-            Response::Err(err) => anyhow::bail!("vault_transfer: {err}"),
-            _ => anyhow::bail!("vault_transfer: unexpected response type: {resp:?}"),
-        }
+        resp.into_default()
     }
 
     /// Send USDC between spot and DEX/subaccount balances.
@@ -1673,14 +1641,7 @@ impl Client {
             self.sign_and_send_sync(signer, send.into_action(self.chain), nonce, None, None);
 
         async move {
-            let resp = future.await?;
-            match resp {
-                Response::Ok(OkResponse::Default) => Ok(()),
-                Response::Err(err) => {
-                    anyhow::bail!("send_asset: {err}")
-                }
-                _ => anyhow::bail!("send_asset: unexpected response type: {resp:?}"),
-            }
+            future.await?.into_default()
         }
     }
 
@@ -1701,14 +1662,7 @@ impl Client {
         let future = self.sign_and_send_sync(signer, send.into_action(), nonce, None, None);
 
         async move {
-            let resp = future.await?;
-            match resp {
-                Response::Ok(OkResponse::Default) => Ok(()),
-                Response::Err(err) => {
-                    anyhow::bail!("agent_send_asset: {err}")
-                }
-                _ => anyhow::bail!("agent_send_asset: unexpected response type: {resp:?}"),
-            }
+            future.await?.into_default()
         }
     }
 
@@ -1734,14 +1688,7 @@ impl Client {
             self.sign_and_send_sync(signer, send.into_action(self.chain), nonce, None, None);
 
         async move {
-            let resp = future.await?;
-            match resp {
-                Response::Ok(OkResponse::Default) => Ok(()),
-                Response::Err(err) => {
-                    anyhow::bail!("spot send: {err}")
-                }
-                _ => anyhow::bail!("spot_send: unexpected response type: {resp:?}"),
-            }
+            future.await?.into_default()
         }
     }
 
@@ -1798,13 +1745,7 @@ impl Client {
             )
             .await?;
 
-        match resp {
-            Response::Ok(OkResponse::Default) => Ok(()),
-            Response::Err(err) => {
-                anyhow::bail!("update_leverage: {err}")
-            }
-            _ => anyhow::bail!("update_leverage: unexpected response type: {resp:?}"),
-        }
+        resp.into_default()
     }
 
     /// Toggle the EVM user "big blocks" setting via signed action.
@@ -1838,13 +1779,7 @@ impl Client {
             )
             .await?;
 
-        match resp {
-            Response::Ok(OkResponse::Default) => Ok(()),
-            Response::Err(err) => {
-                anyhow::bail!("evm_user_modify: {err}")
-            }
-            _ => anyhow::bail!("evm_user_modify: unexpected response type: {resp:?}"),
-        }
+        resp.into_default()
     }
 
     /// Invalidate a nonce by sending a no-op action.
@@ -1870,13 +1805,7 @@ impl Client {
             .sign_and_send_sync(signer, Action::Noop, nonce, vault_address, expires_after)
             .await?;
 
-        match resp {
-            Response::Ok(OkResponse::Default) => Ok(()),
-            Response::Err(err) => {
-                anyhow::bail!("noop: {err}")
-            }
-            _ => anyhow::bail!("noop: unexpected response type: {resp:?}"),
-        }
+        resp.into_default()
     }
 
     // -----------------------------------------------------------------
@@ -1978,11 +1907,7 @@ impl Client {
             .sign_and_send_sync(signer, action, nonce, vault_address, expires_after)
             .await?;
 
-        match resp {
-            Response::Ok(OkResponse::Default) => Ok(()),
-            Response::Err(err) => anyhow::bail!("agent_set_abstraction: {err}"),
-            _ => anyhow::bail!("agent_set_abstraction: unexpected response type: {resp:?}"),
-        }
+        resp.into_default()
     }
 
     /// Set abstraction mode via user-signed action (EIP-712 signing).
@@ -2028,11 +1953,7 @@ impl Client {
             )
             .await?;
 
-        match resp {
-            Response::Ok(OkResponse::Default) => Ok(()),
-            Response::Err(err) => anyhow::bail!("user_set_abstraction: {err}"),
-            _ => anyhow::bail!("user_set_abstraction: unexpected response type: {resp:?}"),
-        }
+        resp.into_default()
     }
 
     /// Executes a multisig action on Hyperliquid.
@@ -2129,11 +2050,11 @@ impl Client {
             let text = String::from_utf8_lossy(&bytes);
 
             if !status.is_success() {
-                return Err(anyhow!("HTTP {status} body={text}"));
+                return Err(ApiError(format!("HTTP {status} body={text}")).into());
             }
 
             let parsed = serde_json::from_str(&text)
-                .map_err(|e| anyhow!("decode failed: {e}; body={text}"))?;
+                .with_context(|| format!("body={text}"))?;
 
             Ok(parsed)
         }
@@ -2182,11 +2103,11 @@ impl Client {
         let text = String::from_utf8_lossy(&bytes);
 
         if !status.is_success() {
-            return Err(anyhow!("HTTP {status} body={text}"));
+            return Err(ApiError(format!("HTTP {status} body={text}")).into());
         }
 
-        let parsed =
-            serde_json::from_str(&text).map_err(|e| anyhow!("decode failed: {e}; body={text}"))?;
+        let parsed = serde_json::from_str(&text)
+            .with_context(|| format!("body={text}"))?;
 
         Ok(parsed)
     }
@@ -2514,11 +2435,7 @@ where
             .sign_and_send(self.lead, action, self.nonce, None, None)
             .await?;
 
-        match resp {
-            Response::Ok(OkResponse::Default) => Ok(()),
-            Response::Err(err) => anyhow::bail!("send_usdc: {err}"),
-            _ => anyhow::bail!("send_usdc: unexpected response type: {resp:?}"),
-        }
+        resp.into_default()
     }
 
     /// Send assets from the multisig account.
@@ -2594,11 +2511,7 @@ where
             .sign_and_send(self.lead, action, self.nonce, None, None)
             .await?;
 
-        match resp {
-            Response::Ok(OkResponse::Default) => Ok(()),
-            Response::Err(err) => anyhow::bail!("send_asset: {err}"),
-            _ => anyhow::bail!("send_asset: unexpected response type: {resp:?}"),
-        }
+        resp.into_default()
     }
 
     /// Approve a new agent for the multisig account.
@@ -2654,11 +2567,7 @@ where
             .sign_and_send(self.lead, action, self.nonce, None, None)
             .await?;
 
-        match resp {
-            Response::Ok(OkResponse::Default) => Ok(()),
-            Response::Err(err) => anyhow::bail!("approve_agent: {err}"),
-            _ => anyhow::bail!("approve_agent: unexpected response type: {resp:?}"),
-        }
+        resp.into_default()
     }
 
     /// Approve the maximum fee rate a builder can charge for routed orders.
@@ -2689,11 +2598,7 @@ where
             .sign_and_send(self.lead, action, self.nonce, None, None)
             .await?;
 
-        match resp {
-            Response::Ok(OkResponse::Default) => Ok(()),
-            Response::Err(err) => anyhow::bail!("approve_builder_fee: {err}"),
-            _ => anyhow::bail!("approve_builder_fee: unexpected response type: {resp:?}"),
-        }
+        resp.into_default()
     }
 
     /// Convert multisig account back to normal user.
@@ -2741,10 +2646,6 @@ where
             .sign_and_send(self.lead, action, self.nonce, None, None)
             .await?;
 
-        match resp {
-            Response::Ok(OkResponse::Default) => Ok(()),
-            Response::Err(err) => anyhow::bail!("convert_to_normal_user: {err}"),
-            _ => anyhow::bail!("convert_to_normal_user: unexpected response type: {resp:?}"),
-        }
+        resp.into_default()
     }
 }

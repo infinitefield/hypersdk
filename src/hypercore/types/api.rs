@@ -16,7 +16,7 @@ use serde_with::serde_as;
 
 use super::solidity;
 use crate::hypercore::{
-    Chain,
+    ApiError, Chain,
     types::{
         BatchCancel, BatchCancelCloid, BatchModify, BatchOrder, CORE_MAINNET_EIP712_DOMAIN,
         OrderResponseStatus, ScheduleCancel, Signature,
@@ -191,6 +191,16 @@ pub enum OkResponse {
     Cancel { statuses: Vec<OrderResponseStatus> },
     // should be ok?
     Default,
+}
+
+impl Response {
+    pub fn into_default(self) -> anyhow::Result<()> {
+        match self {
+            Response::Ok(OkResponse::Default) => Ok(()),
+            Response::Err(err) => Err(ApiError(err).into()),
+            other => Err(ApiError(format!("unexpected response: {other:?}")).into()),
+        }
+    }
 }
 
 impl Action {

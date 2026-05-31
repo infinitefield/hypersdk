@@ -96,6 +96,10 @@ name = "transfer_to_spot"
 path = "examples/hypercore/transfer_to_spot.rs"
 
 [[example]]
+name = "error_handling"
+path = "examples/hypercore/error_handling.rs"
+
+[[example]]
 name = "websocket"
 path = "examples/hypercore/websocket.rs"
 
@@ -180,6 +184,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 [dependencies]
 alloy = { version = "1.5.2", default-features = false, features = ["contract", "eip712", "getrandom", "providers", "reqwest", "reqwest-rustls-tls", "rpc", "rpc-types", "signer-local", "signers", "sol-types"] }
 anyhow = "1"
+thiserror = "2"
 const-hex = { version = "1.17", features = ["serde"] }
 derive_more = { version = "2", features = ["display", "is_variant"] }
 either = { version = "1", features = ["serde"] }
