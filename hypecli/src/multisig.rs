@@ -87,6 +87,9 @@ pub struct MultiSigSendAsset {
     /// Destination DEX. Can be "spot" or a dex name.
     #[arg(long)]
     pub dest: Option<String>,
+    /// Sign and submit using only local signers, without starting P2P gossip.
+    #[arg(long)]
+    pub local: bool,
 }
 
 impl MultiSigSendAsset {
@@ -131,6 +134,9 @@ pub struct MultiSigConvertToNormalUser {
     /// Multi-sig wallet address.
     #[arg(long)]
     pub multi_sig_addr: Address,
+    /// Sign and submit using only local signers, without starting P2P gossip.
+    #[arg(long)]
+    pub local: bool,
 }
 
 impl MultiSigConvertToNormalUser {
@@ -157,6 +163,10 @@ pub struct UpdateMultiSigCmd {
     /// Multi-sig wallet address.
     #[arg(long)]
     multi_sig_addr: Address,
+
+    /// Sign and submit using only local signers, without starting P2P gossip.
+    #[arg(long)]
+    local: bool,
 }
 
 impl UpdateMultiSigCmd {
@@ -195,7 +205,7 @@ async fn send_asset(cmd: MultiSigSendAsset) -> anyhow::Result<()> {
     let tokens = hypercore::mainnet().spot_tokens().await?;
     let token = tokens
         .iter()
-        .find(|token| token.name == cmd.token)
+        .find(|token| token.name.eq_ignore_ascii_case(&cmd.token))
         .ok_or(anyhow::anyhow!("token {} not found", cmd.token))?;
 
     let nonce = NonceHandler::default().next();
@@ -232,6 +242,7 @@ async fn send_asset(cmd: MultiSigSendAsset) -> anyhow::Result<()> {
         action,
         nonce,
         &multisig_config,
+        cmd.local,
     )
     .await
 }
@@ -265,6 +276,7 @@ async fn update(cmd: UpdateMultiSigCmd) -> anyhow::Result<()> {
         action,
         nonce,
         &multisig_config,
+        cmd.local,
     )
     .await
 }
@@ -301,6 +313,7 @@ async fn convert_to_normal_user(cmd: MultiSigConvertToNormalUser) -> anyhow::Res
         action,
         nonce,
         &multisig_config,
+        cmd.local,
     )
     .await
 }
@@ -403,8 +416,88 @@ async fn execute_multisig_action(
     inner_action: Action,
     nonce: u64,
     multisig_config: &hypersdk::hypercore::MultiSigConfig,
+    local: bool,
 ) -> anyhow::Result<()> {
     let lead_signer = &signers[0];
+
+    let action = MultiSigPayload {
+        multi_sig_user: multi_sig_addr.to_string().to_lowercase(),
+        outer_signer: lead_signer.address().to_string().to_lowercase(),
+        action: Box::new(inner_action),
+    };
+
+    let mut signatures = vec![];
+    let mut signed_addresses: Vec<Address> = Vec::new();
+
+    for signer in &signers {
+        if multisig_config.authorized_users.contains(&signer.address()) {
+            println!(
+                "Using local signer {} to sign message:\n{action:#?}",
+                signer.address()
+            );
+            signatures.push(action.sign(signer, nonce, hl.chain()).await?);
+            signed_addresses.push(signer.address());
+        }
+    }
+
+    if !local {
+        collect_remote_signatures(
+            &action,
+            &mut signatures,
+            &mut signed_addresses,
+            nonce,
+            &hl,
+            multi_sig_addr,
+            multisig_config,
+            lead_signer,
+        )
+        .await?;
+    } else if signatures.len() < multisig_config.threshold {
+        anyhow::bail!(
+            "not enough local signers: have {} but need {}",
+            signatures.len(),
+            multisig_config.threshold
+        );
+    }
+
+    let multi_sig_action = MultiSigAction {
+        signature_chain_id: hl.chain().arbitrum_id().to_owned(),
+        signatures,
+        payload: action,
+    };
+
+    let req = hypercore::signing::multisig_lead_msg(
+        lead_signer,
+        multi_sig_action,
+        nonce,
+        None,
+        None,
+        hl.chain(),
+    )
+    .await?;
+
+    match hl.send(req).await? {
+        api::Response::Ok(_) => {
+            println!("Success");
+        }
+        api::Response::Err(err) => {
+            println!("error: {err}");
+        }
+    }
+
+    Ok(())
+}
+
+async fn collect_remote_signatures(
+    action: &MultiSigPayload,
+    signatures: &mut Vec<Signature>,
+    signed_addresses: &mut Vec<Address>,
+    nonce: u64,
+    hl: &HttpClient,
+    multi_sig_addr: Address,
+    multisig_config: &hypersdk::hypercore::MultiSigConfig,
+    lead_signer: &(dyn Signer + Send + Sync),
+) -> anyhow::Result<()> {
     let key = utils::make_key(lead_signer);
 
     let pb = ProgressBar::new_spinner();
@@ -419,30 +512,9 @@ async fn execute_multisig_action(
 
     pb.finish_and_clear();
 
-    let action = MultiSigPayload {
-        multi_sig_user: multi_sig_addr.to_string().to_lowercase(),
-        outer_signer: lead_signer.address().to_string().to_lowercase(),
-        action: Box::new(inner_action),
-    };
-
-    let mut signatures = vec![];
-
     let pb = ProgressBar::new(multisig_config.threshold as u64);
     pb.set_style(ProgressStyle::with_template("{msg}\nAuthorized {pos}/{len}").unwrap());
-
-    let mut signed_addresses: Vec<Address> = Vec::new();
-
-    for signer in &signers {
-        if multisig_config.authorized_users.contains(&signer.address()) {
-            println!(
-                "Using local signer {} to sign message:\n{action:#?}",
-                signer.address()
-            );
-            signatures.push(action.sign(signer, nonce, hl.chain()).await?);
-            signed_addresses.push(signer.address());
-            pb.inc(1);
-        }
-    }
+    pb.set_position(signatures.len() as u64);
 
     while signatures.len() < multisig_config.threshold {
         println!(
@@ -454,7 +526,7 @@ async fn execute_multisig_action(
             break;
         }
         let new_signers =
-            utils::scan_hw_signers(&multisig_config.authorized_users, &signed_addresses).await;
+            utils::scan_hw_signers(&multisig_config.authorized_users, signed_addresses).await;
         if new_signers.is_empty() {
             println!("No new hardware wallets found.");
             continue;
@@ -511,32 +583,6 @@ async fn execute_multisig_action(
     }
 
     pb.finish_and_clear();
-
-    let multi_sig_action = MultiSigAction {
-        signature_chain_id: hl.chain().arbitrum_id().to_owned(),
-        signatures,
-        payload: action,
-    };
-
-    let req = hypercore::signing::multisig_lead_msg(
-        lead_signer,
-        multi_sig_action,
-        nonce,
-        None,
-        None,
-        hl.chain(),
-    )
-    .await?;
-
-    match hl.send(req).await? {
-        api::Response::Ok(_) => {
-            println!("Success");
-        }
-        api::Response::Err(err) => {
-            println!("error: {err}");
-        }
-    }
-
     router.shutdown().await?;
 
     Ok(())

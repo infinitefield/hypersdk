@@ -7,6 +7,7 @@
 
 use std::fs;
 
+use alloy::signers::{self, Signer, ledger::LedgerSigner, trezor::TrezorSigner};
 use clap::{Args, Subcommand};
 use hypersdk::hypercore::PrivateKeySigner;
 
@@ -19,6 +20,8 @@ pub enum AccountCmd {
     Create(CreateCmd),
     /// List available keystores
     List(ListCmd),
+    /// Test hardware wallet signer (Ledger/Trezor)
+    TestSigner(TestSignerCmd),
 }
 
 impl AccountCmd {
@@ -26,6 +29,7 @@ impl AccountCmd {
         match self {
             Self::Create(cmd) => cmd.run().await,
             Self::List(cmd) => cmd.run().await,
+            Self::TestSigner(cmd) => cmd.run().await,
         }
     }
 }
@@ -155,5 +159,46 @@ impl ListCmd {
         }
 
         Ok(())
+    }
+}
+
+#[derive(Args)]
+pub struct TestSignerCmd {}
+
+impl TestSignerCmd {
+    pub async fn run(self) -> anyhow::Result<()> {
+        let msg = b"hypecli test";
+
+        println!("Scanning for Trezor...");
+        for i in 0..5 {
+            match TrezorSigner::new(signers::trezor::HDPath::TrezorLive(i), Some(1)).await {
+                Ok(signer) => {
+                    println!("  Found Trezor account {i}: {}", signer.address());
+                    match signer.sign_message(msg).await {
+                        Ok(sig) => println!("  Signature: 0x{}", hex::encode(sig.as_bytes())),
+                        Err(e) => println!("  Sign failed: {e}"),
+                    }
+                    return Ok(());
+                }
+                Err(_) => continue,
+            }
+        }
+
+        println!("Scanning for Ledger...");
+        for i in 0..5 {
+            match LedgerSigner::new(signers::ledger::HDPath::LedgerLive(i), Some(1)).await {
+                Ok(signer) => {
+                    println!("  Found Ledger account {i}: {}", signer.address());
+                    match signer.sign_message(msg).await {
+                        Ok(sig) => println!("  Signature: 0x{}", hex::encode(sig.as_bytes())),
+                        Err(e) => println!("  Sign failed: {e}"),
+                    }
+                    return Ok(());
+                }
+                Err(_) => continue,
+            }
+        }
+
+        anyhow::bail!("No hardware wallet found")
     }
 }

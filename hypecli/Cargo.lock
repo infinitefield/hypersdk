@@ -618,15 +618,17 @@ dependencies = [
 [[package]]
 name = "alloy-signer-trezor"
 version = "1.6.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b862c0e9f9acf839601b012313a9c4b619e35da0ea7c1b634af8df20ea2c00ab"
 dependencies = [
  "alloy-consensus",
+ "alloy-dyn-abi",
  "alloy-network",
  "alloy-primitives",
  "alloy-signer",
+ "alloy-sol-types",
  "async-trait",
  "semver 1.0.28",
+ "serde",
+ "serde_json",
  "thiserror 2.0.18",
  "tracing",
  "trezor-client",
@@ -3202,19 +3204,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e232f503c4cfe3f4ea6594971255ecab9f6a0080c4c8e0e17630cc701322aa4"
 dependencies = [
  "async-trait",
+ "bytes",
  "cfg-if",
  "data-encoding",
  "futures-channel",
  "futures-io",
  "futures-util",
+ "h2",
  "hickory-proto",
+ "http 1.4.1",
  "idna",
  "ipnet",
  "jni",
  "rand 0.10.1",
+ "rustls",
  "thiserror 2.0.18",
  "tinyvec",
  "tokio",
+ "tokio-rustls",
  "tracing",
  "url",
 ]
@@ -3258,10 +3265,12 @@ dependencies = [
  "parking_lot",
  "rand 0.10.1",
  "resolv-conf",
+ "rustls",
  "smallvec",
  "system-configuration",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-rustls",
  "tracing",
 ]
 
@@ -3490,6 +3499,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-util",
  "url",
@@ -4526,6 +4536,7 @@ dependencies = [
  "identity-hash",
  "lru-slab",
  "rand 0.10.1",
+ "ring",
  "rustc-hash",
  "rustls",
  "rustls-pki-types",
@@ -6899,6 +6910,7 @@ dependencies = [
  "http 1.4.1",
  "httparse",
  "rand 0.10.1",
+ "ring",
  "rustls-pki-types",
  "sha1_smol",
  "simdutf8",
@@ -7099,13 +7111,12 @@ dependencies = [
 [[package]]
 name = "trezor-client"
 version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87873db279766278a7e56b01139943e00a45afc079fc8fa6651e949f2234c3f6"
 dependencies = [
  "byteorder",
  "hex",
  "protobuf",
  "rusb",
+ "serde_json",
  "thiserror 2.0.18",
  "tracing",
 ]
