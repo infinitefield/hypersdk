@@ -2939,12 +2939,18 @@ pub struct UserBalance {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UserFees {
-    /// Effective maker fee rate for the user (`userAddRate`).
+    /// Effective perpetual maker fee rate for the user (`userAddRate`).
     #[serde(rename = "userAddRate")]
     pub maker_rate: Decimal,
-    /// Effective taker fee rate for the user (`userCrossRate`).
+    /// Effective perpetual taker fee rate for the user (`userCrossRate`).
     #[serde(rename = "userCrossRate")]
     pub taker_rate: Decimal,
+    /// Effective spot maker fee rate for the user (`userSpotAddRate`).
+    #[serde(rename = "userSpotAddRate")]
+    pub spot_maker_rate: Decimal,
+    /// Effective spot taker fee rate for the user (`userSpotCrossRate`).
+    #[serde(rename = "userSpotCrossRate")]
+    pub spot_taker_rate: Decimal,
     /// Active referral discount applied to the user.
     #[serde(rename = "activeReferralDiscount")]
     pub referral_discount: Decimal,
