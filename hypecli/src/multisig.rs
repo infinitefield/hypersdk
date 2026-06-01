@@ -222,24 +222,22 @@ async fn send_asset(cmd: MultiSigSendAsset) -> anyhow::Result<()> {
         .map(|s| s.parse().unwrap_or(AssetTarget::Perp))
         .unwrap_or(AssetTarget::Perp);
 
-    let action = Action::from(
-        SendAsset {
-            destination: cmd.to,
-            source_dex,
-            destination_dex,
-            token: SendToken(token.clone()),
-            amount: cmd.amount,
-            from_sub_account: "".to_owned(),
-            nonce,
-        }
-        .into_action(cmd.chain),
-    );
+    let send_action = SendAsset {
+        destination: cmd.to,
+        source_dex,
+        destination_dex,
+        token: SendToken(token.clone()),
+        amount: cmd.amount,
+        from_sub_account: "".to_owned(),
+        nonce,
+    }
+    .into_action(cmd.chain);
 
     execute_multisig_action(
         cmd.multi_sig_addr,
         hl,
         signers,
-        action,
+        Action::from(send_action),
         nonce,
         &multisig_config,
         cmd.local,
