@@ -64,7 +64,7 @@ name = "list-markets"
 path = "examples/hypercore/list-markets.rs"
 
 [[example]]
-name = "list_tokens"
+name = "list-tokens"
 path = "examples/hypercore/list-tokens.rs"
 
 [[example]]
