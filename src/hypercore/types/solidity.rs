@@ -84,6 +84,27 @@ sol! {
         string abstraction;
         uint64 nonce;
     }
+
+    struct Withdraw3 {
+        string hyperliquidChain;
+        string destination;
+        string amount;
+        uint64 time;
+    }
+
+    struct UsdClassTransfer {
+        string hyperliquidChain;
+        string amount;
+        bool toPerp;
+        uint64 nonce;
+    }
+
+    struct TokenDelegate {
+        string hyperliquidChain;
+        address validator;
+        bool isUndelegate;
+        uint64 wei;
+    }
 }
 
 /// Multisig-specific EIP-712 struct definitions.

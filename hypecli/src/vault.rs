@@ -91,7 +91,7 @@ impl VaultDetailsCmd {
         let tvl = details.portfolio.iter()
             .find(|(period, _)| period == DAY_PERIOD)
             .and_then(|(_, p)| p.account_value_history.iter().max_by_key(|(ts, _)| *ts))
-            .map(|(_, value)| value.as_str());
+            .map(|(_, value)| value.to_string());
         if let Some(tvl) = tvl {
             println!("TVL: ${}", tvl);
         }

@@ -485,7 +485,7 @@ pub async fn resolve_market(client: &HttpClient, asset: &str) -> anyhow::Result<
             })
         }
         AssetSpec::Hip3Perp(dex_name, symbol) => {
-            let dexs = client.perp_dexs().await?;
+            let dexs = client.perp_dexes().await?;
             let dex = dexs
                 .iter()
                 .find(|d| d.name().eq_ignore_ascii_case(dex_name))

@@ -97,13 +97,13 @@ impl StatusCmd {
         println!("{}", "-".repeat(48));
 
         for (i, slot) in status.iter().enumerate() {
-            let cur_str = slot.current_gas.as_deref().unwrap_or("(no bid)");
+            let cur_str = slot.current_gas.map(|d| d.to_string());
             println!(
                 "{:<6} {:>12} {:>12} {:>12}",
                 i,
                 slot.start_gas,
-                cur_str,
-                slot.end_gas.as_deref().unwrap_or("-")
+                cur_str.as_deref().unwrap_or("(no bid)"),
+                slot.end_gas.map(|d| d.to_string()).as_deref().unwrap_or("-")
             );
         }
 
@@ -164,8 +164,7 @@ impl BidCmd {
 
         let current: u64 = slot
             .current_gas
-            .as_ref()
-            .and_then(|s| s.parse().ok())
+            .and_then(|d| u64::try_from(d).ok())
             .unwrap_or(0);
 
         if current >= max_gas && current > 0 {

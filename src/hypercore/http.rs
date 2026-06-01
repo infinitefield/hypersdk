@@ -62,15 +62,21 @@ use crate::hypercore::{
     Market, MultiSigConfig, OidOrCloid, OutcomeMeta, PerpMarket, Signature, SpotMarket, SpotToken,
     api::{
         Action, ActionRequest, ApproveAgent, ApproveBuilderFee, ConvertToMultiSigUser,
-        GossipPriorityBid, OkResponse, Response, SignersConfig, UpdateLeverage, VaultTransfer,
+        GossipPriorityBid, Hip3LiquidatorTransferAction, OkResponse, Response, SignersConfig,
+        TokenDelegateAction, TwapOrderParams, UsdClassTransferAction, UpdateIsolatedMargin,
+        UpdateLeverage,
+        VaultTransfer, Withdraw3Action,
     },
     mainnet_url, testnet_url,
     types::{
-        AbstractionMode, AgentSendAsset, BasicOrder, BatchCancel, BatchCancelCloid, BatchModify,
-        BatchOrder, ClearinghouseState, Fill, FundingRate, InfoRequest, OrderGrouping,
-        OrderRequest, OrderResponseStatus, OrderTypePlacement, OrderUpdate, ScheduleCancel,
-        SendAsset, SendToken, SpotSend, SubAccount, TimeInForce, UsdSend, UserBalance, UserFees,
-        UserRole, UserSetAbstractionAction, UserVaultEquity, VaultDetails,
+        AbstractionMode, ActiveAssetData, AgentSendAsset, BasicOrder, BatchCancel,
+        BatchCancelCloid, BatchModify, BatchOrder, ClearinghouseState, Delegation,
+        DelegatorSummary, DeployAuctionStatus, Fill, FundingRate, InfoRequest, L2Book,
+        OrderGrouping, OrderRequest, OrderResponseStatus, OrderTypePlacement, OrderUpdate,
+        PerpDexLimits, PerpDexStatus, PredictedFundingVenue, ScheduleCancel, SendAsset, SendToken,
+        SpotSend, SubAccount, TimeInForce, TokenDetails, TwapSliceFill, UsdSend, UserBalance,
+        UserFees, UserFundingEntry, UserRateLimit, UserRole, UserSetAbstractionAction,
+        UserVaultEquity, VaultDetails,
     },
 };
 
@@ -462,7 +468,7 @@ impl Client {
     /// Retrieves historical orders for a user.
     ///
     /// Returns all past (non-open) orders, including filled, canceled, and expired orders.
-    pub async fn historical_orders(&self, user: Address) -> Result<Vec<BasicOrder>> {
+    pub async fn historical_orders(&self, user: Address) -> Result<Vec<OrderUpdate<BasicOrder>>> {
         let req = InfoRequest::HistoricalOrders { user };
         self.send_info_request("historical_orders", &req).await
     }
@@ -472,7 +478,10 @@ impl Client {
     /// Retrieves all trade fills (executed orders) for a user, including the fill price, size,
     /// side, and associated order ID.
     pub async fn user_fills(&self, user: Address) -> Result<Vec<Fill>> {
-        let req = InfoRequest::UserFills { user };
+        let req = InfoRequest::UserFills {
+            user,
+            aggregate_by_time: None,
+        };
         self.send_info_request("user_fills", &req).await
     }
 
@@ -496,6 +505,7 @@ impl Client {
             user,
             start_time,
             end_time,
+            aggregate_by_time: None,
         };
         self.send_info_request("user_fills_by_time", &req).await
     }
@@ -625,7 +635,8 @@ impl Client {
 
     /// Retrieves user-specific fee rates.
     ///
-    /// Returns effective maker and taker rates plus the active referral discount.
+    /// Returns effective maker/taker rates for perps and spot, referral discount,
+    /// daily volume, and staking discount information.
     ///
     /// # Example
     ///
@@ -641,7 +652,7 @@ impl Client {
     /// println!("maker={} taker={} referral_discount={}",
     ///     fees.maker_rate,
     ///     fees.taker_rate,
-    ///     fees.referral_discount
+    ///     fees.active_referral_discount
     /// );
     /// # Ok(())
     /// # }
@@ -1748,6 +1759,34 @@ impl Client {
         resp.into_default()
     }
 
+    /// Updates isolated margin for a position.
+    pub async fn update_isolated_margin<S: SignerSync>(
+        &self,
+        signer: &S,
+        asset: usize,
+        is_buy: bool,
+        ntli: u64,
+        nonce: u64,
+        vault_address: Option<Address>,
+        expires_after: Option<DateTime<Utc>>,
+    ) -> Result<()> {
+        let resp = self
+            .sign_and_send_sync(
+                signer,
+                Action::UpdateIsolatedMargin(UpdateIsolatedMargin {
+                    asset,
+                    is_buy,
+                    ntli,
+                }),
+                nonce,
+                vault_address,
+                expires_after,
+            )
+            .await?;
+
+        resp.into_default()
+    }
+
     /// Toggle the EVM user "big blocks" setting via signed action.
     ///
     /// Enables or disables big block processing for the user's HyperEVM account.
@@ -2112,7 +2151,461 @@ impl Client {
         Ok(parsed)
     }
 
-    // TODO: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#retrieve-a-users-subaccounts
+    /// Returns combined perpetual metadata and asset contexts.
+    pub async fn meta_and_asset_ctxs(
+        &self,
+        dex: Option<String>,
+    ) -> Result<serde_json::Value> {
+        let req = InfoRequest::MetaAndAssetCtxs { dex };
+        self.send_info_request("meta_and_asset_ctxs", &req).await
+    }
+
+    /// Returns combined spot metadata and asset contexts.
+    pub async fn spot_meta_and_asset_ctxs(&self) -> Result<serde_json::Value> {
+        let req = InfoRequest::SpotMetaAndAssetCtxs;
+        self.send_info_request("spot_meta_and_asset_ctxs", &req)
+            .await
+    }
+
+    /// Returns the user's rate limit usage.
+    pub async fn user_rate_limit(&self, user: Address) -> Result<UserRateLimit> {
+        let req = InfoRequest::UserRateLimit { user };
+        self.send_info_request("user_rate_limit", &req).await
+    }
+
+    /// Returns the user's funding history.
+    pub async fn user_funding(
+        &self,
+        user: Address,
+        start_time: u64,
+        end_time: Option<u64>,
+    ) -> Result<Vec<UserFundingEntry>> {
+        let req = InfoRequest::UserFunding {
+            user,
+            start_time,
+            end_time,
+        };
+        self.send_info_request("user_funding", &req).await
+    }
+
+    /// Returns the user's non-funding ledger updates.
+    pub async fn user_non_funding_ledger_updates(
+        &self,
+        user: Address,
+        start_time: u64,
+        end_time: Option<u64>,
+    ) -> Result<Vec<serde_json::Value>> {
+        let req = InfoRequest::UserNonFundingLedgerUpdates {
+            user,
+            start_time,
+            end_time,
+        };
+        self.send_info_request("user_non_funding_ledger_updates", &req)
+            .await
+    }
+
+    /// Returns predicted funding rates for all coins.
+    pub async fn predicted_fundings(
+        &self,
+    ) -> Result<Vec<(String, Vec<(String, PredictedFundingVenue)>)>> {
+        let req = InfoRequest::PredictedFundings;
+        self.send_info_request("predicted_fundings", &req).await
+    }
+
+    /// Returns coins at open interest cap.
+    pub async fn perps_at_open_interest_cap(
+        &self,
+        dex: Option<String>,
+    ) -> Result<Vec<String>> {
+        let req = InfoRequest::PerpsAtOpenInterestCap { dex };
+        self.send_info_request("perps_at_open_interest_cap", &req)
+            .await
+    }
+
+    /// Returns perp deploy auction status.
+    pub async fn perp_deploy_auction_status(&self) -> Result<DeployAuctionStatus> {
+        let req = InfoRequest::PerpDeployAuctionStatus;
+        self.send_info_request("perp_deploy_auction_status", &req)
+            .await
+    }
+
+    /// Returns user leverage and trade-size limits for a specific asset.
+    pub async fn active_asset_data(
+        &self,
+        user: Address,
+        coin: String,
+    ) -> Result<ActiveAssetData> {
+        let req = InfoRequest::ActiveAssetData { user, coin };
+        self.send_info_request("active_asset_data", &req).await
+    }
+
+    /// Returns OI caps and transfer limits for a HIP-3 DEX.
+    pub async fn perp_dex_limits(&self, dex: String) -> Result<PerpDexLimits> {
+        let req = InfoRequest::PerpDexLimits { dex };
+        self.send_info_request("perp_dex_limits", &req).await
+    }
+
+    /// Returns total net deposit for a HIP-3 DEX.
+    pub async fn perp_dex_status(&self, dex: String) -> Result<PerpDexStatus> {
+        let req = InfoRequest::PerpDexStatus { dex };
+        self.send_info_request("perp_dex_status", &req).await
+    }
+
+    /// Returns all DEXs' meta + asset contexts.
+    pub async fn all_perp_metas(&self) -> Result<serde_json::Value> {
+        let req = InfoRequest::AllPerpMetas;
+        self.send_info_request("all_perp_metas", &req).await
+    }
+
+    /// Returns category and description for a coin.
+    pub async fn perp_annotation(&self, coin: String) -> Result<serde_json::Value> {
+        let req = InfoRequest::PerpAnnotation { coin };
+        self.send_info_request("perp_annotation", &req).await
+    }
+
+    /// Returns all coin categories.
+    pub async fn perp_categories(&self) -> Result<Vec<(String, String)>> {
+        let req = InfoRequest::PerpCategories;
+        self.send_info_request("perp_categories", &req).await
+    }
+
+    /// Returns concise coin annotations.
+    pub async fn perp_concise_annotations(&self) -> Result<serde_json::Value> {
+        let req = InfoRequest::PerpConciseAnnotations;
+        self.send_info_request("perp_concise_annotations", &req)
+            .await
+    }
+
+    /// Returns spot token deploy state for a user.
+    pub async fn spot_deploy_state(&self, user: Address) -> Result<serde_json::Value> {
+        let req = InfoRequest::SpotDeployState { user };
+        self.send_info_request("spot_deploy_state", &req).await
+    }
+
+    /// Returns spot pair deploy auction status.
+    pub async fn spot_pair_deploy_auction_status(&self) -> Result<DeployAuctionStatus> {
+        let req = InfoRequest::SpotPairDeployAuctionStatus;
+        self.send_info_request("spot_pair_deploy_auction_status", &req)
+            .await
+    }
+
+    /// Returns detailed token info by tokenId.
+    pub async fn token_details(&self, token_id: String) -> Result<TokenDetails> {
+        let req = InfoRequest::TokenDetails { token_id };
+        self.send_info_request("token_details", &req).await
+    }
+
+    /// Returns settled outcome market result.
+    pub async fn settled_outcome(&self, outcome: u64) -> Result<serde_json::Value> {
+        let req = InfoRequest::SettledOutcome { outcome };
+        self.send_info_request("settled_outcome", &req).await
+    }
+
+    /// Returns user portfolio performance.
+    pub async fn portfolio(&self, user: Address) -> Result<serde_json::Value> {
+        let req = InfoRequest::Portfolio { user };
+        self.send_info_request("portfolio", &req).await
+    }
+
+    /// Returns referral state and rewards.
+    pub async fn referral(&self, user: Address) -> Result<serde_json::Value> {
+        let req = InfoRequest::Referral { user };
+        self.send_info_request("referral", &req).await
+    }
+
+    /// Returns list of approved builder addresses.
+    pub async fn approved_builders(&self, user: Address) -> Result<Vec<Address>> {
+        let req = InfoRequest::ApprovedBuilders { user };
+        self.send_info_request("approved_builders", &req).await
+    }
+
+    /// Returns user's staking delegations.
+    pub async fn delegations(&self, user: Address) -> Result<Vec<Delegation>> {
+        let req = InfoRequest::Delegations { user };
+        self.send_info_request("delegations", &req).await
+    }
+
+    /// Returns delegation summary for a user.
+    pub async fn delegator_summary(&self, user: Address) -> Result<DelegatorSummary> {
+        let req = InfoRequest::DelegatorSummary { user };
+        self.send_info_request("delegator_summary", &req).await
+    }
+
+    /// Returns delegation history for a user.
+    pub async fn delegator_history(&self, user: Address) -> Result<Vec<serde_json::Value>> {
+        let req = InfoRequest::DelegatorHistory { user };
+        self.send_info_request("delegator_history", &req).await
+    }
+
+    /// Returns delegation rewards for a user.
+    pub async fn delegator_rewards(&self, user: Address) -> Result<Vec<serde_json::Value>> {
+        let req = InfoRequest::DelegatorRewards { user };
+        self.send_info_request("delegator_rewards", &req).await
+    }
+
+    /// Returns borrow/lend user state.
+    pub async fn borrow_lend_user_state(&self, user: Address) -> Result<serde_json::Value> {
+        let req = InfoRequest::BorrowLendUserState { user };
+        self.send_info_request("borrow_lend_user_state", &req)
+            .await
+    }
+
+    /// Returns borrow/lend reserve state for a specific token.
+    pub async fn borrow_lend_reserve_state(&self, token: u32) -> Result<serde_json::Value> {
+        let req = InfoRequest::BorrowLendReserveState { token };
+        self.send_info_request("borrow_lend_reserve_state", &req)
+            .await
+    }
+
+    /// Returns all borrow/lend reserve states.
+    pub async fn all_borrow_lend_reserve_states(&self) -> Result<serde_json::Value> {
+        let req = InfoRequest::AllBorrowLendReserveStates;
+        self.send_info_request("all_borrow_lend_reserve_states", &req)
+            .await
+    }
+
+    /// Returns aligned quote token info.
+    pub async fn aligned_quote_token_info(&self, token: u32) -> Result<serde_json::Value> {
+        let req = InfoRequest::AlignedQuoteTokenInfo { token };
+        self.send_info_request("aligned_quote_token_info", &req)
+            .await
+    }
+
+    /// Returns TWAP slice fills for a user via info endpoint.
+    pub async fn user_twap_slice_fills(&self, user: Address) -> Result<Vec<TwapSliceFill>> {
+        let req = InfoRequest::UserTwapSliceFills { user };
+        self.send_info_request("user_twap_slice_fills", &req).await
+    }
+
+    /// Returns L2 order book snapshot.
+    pub async fn l2_book(
+        &self,
+        coin: String,
+        n_sig_figs: Option<u8>,
+        mantissa: Option<u8>,
+    ) -> Result<L2Book> {
+        let req = InfoRequest::L2Book {
+            coin,
+            n_sig_figs,
+            mantissa,
+        };
+        self.send_info_request("l2_book", &req).await
+    }
+
+    /// Returns simple open orders for a user.
+    pub async fn simple_open_orders(&self, user: Address) -> Result<Vec<serde_json::Value>> {
+        let req = InfoRequest::OpenOrders { user };
+        self.send_info_request("simple_open_orders", &req).await
+    }
+
+    // --- Exchange actions (Phase 2) ---
+
+    /// Place a TWAP order.
+    pub async fn twap_order<S: SignerSync>(
+        &self,
+        signer: &S,
+        params: TwapOrderParams,
+        nonce: u64,
+        vault_address: Option<Address>,
+        expires_after: Option<DateTime<Utc>>,
+    ) -> Result<Response> {
+        let action = Action::TwapOrder { twap: params };
+        let req = action.sign_sync(
+            signer,
+            nonce,
+            vault_address,
+            expires_after,
+            self.chain,
+        )?;
+        self.send(req).await
+    }
+
+    /// Cancel a TWAP order.
+    pub async fn twap_cancel<S: SignerSync>(
+        &self,
+        signer: &S,
+        asset: usize,
+        twap_id: u64,
+        nonce: u64,
+        vault_address: Option<Address>,
+        expires_after: Option<DateTime<Utc>>,
+    ) -> Result<Response> {
+        let action = Action::TwapCancel { a: asset, t: twap_id };
+        let req = action.sign_sync(
+            signer,
+            nonce,
+            vault_address,
+            expires_after,
+            self.chain,
+        )?;
+        self.send(req).await
+    }
+
+    /// Withdraw to Arbitrum L1.
+    pub async fn withdraw<S: SignerSync>(
+        &self,
+        signer: &S,
+        destination: Address,
+        amount: Decimal,
+        nonce: u64,
+        vault_address: Option<Address>,
+        expires_after: Option<DateTime<Utc>>,
+    ) -> Result<()> {
+        let action = Action::Withdraw3(Withdraw3Action {
+            signature_chain_id: self.chain.arbitrum_id().to_string(),
+            hyperliquid_chain: self.chain,
+            destination,
+            amount,
+            time: nonce,
+        });
+        let req = action.sign_sync(
+            signer,
+            nonce,
+            vault_address,
+            expires_after,
+            self.chain,
+        )?;
+        self.send(req).await?.into_default()
+    }
+
+    /// Transfer between spot and perp balances.
+    pub async fn usd_class_transfer<S: SignerSync>(
+        &self,
+        signer: &S,
+        amount: Decimal,
+        to_perp: bool,
+        nonce: u64,
+        vault_address: Option<Address>,
+        expires_after: Option<DateTime<Utc>>,
+    ) -> Result<()> {
+        let action = Action::UsdClassTransfer(UsdClassTransferAction {
+            signature_chain_id: self.chain.arbitrum_id().to_string(),
+            hyperliquid_chain: self.chain,
+            amount: amount.to_string(),
+            to_perp,
+            nonce,
+        });
+        let req = action.sign_sync(
+            signer,
+            nonce,
+            vault_address,
+            expires_after,
+            self.chain,
+        )?;
+        self.send(req).await?.into_default()
+    }
+
+    /// Stake native token (HYPE).
+    pub async fn stake<S: SignerSync>(
+        &self,
+        signer: &S,
+        wei: u64,
+        nonce: u64,
+        vault_address: Option<Address>,
+        expires_after: Option<DateTime<Utc>>,
+    ) -> Result<()> {
+        let action = Action::CDeposit { wei };
+        let req = action.sign_sync(
+            signer,
+            nonce,
+            vault_address,
+            expires_after,
+            self.chain,
+        )?;
+        self.send(req).await?.into_default()
+    }
+
+    /// Unstake native token (HYPE). 7-day queue.
+    pub async fn unstake<S: SignerSync>(
+        &self,
+        signer: &S,
+        wei: u64,
+        nonce: u64,
+        vault_address: Option<Address>,
+        expires_after: Option<DateTime<Utc>>,
+    ) -> Result<()> {
+        let action = Action::CWithdraw { wei };
+        let req = action.sign_sync(
+            signer,
+            nonce,
+            vault_address,
+            expires_after,
+            self.chain,
+        )?;
+        self.send(req).await?.into_default()
+    }
+
+    /// Delegate or undelegate staked tokens to a validator.
+    pub async fn token_delegate<S: SignerSync>(
+        &self,
+        signer: &S,
+        validator: Address,
+        is_undelegate: bool,
+        wei: u64,
+        nonce: u64,
+        vault_address: Option<Address>,
+        expires_after: Option<DateTime<Utc>>,
+    ) -> Result<()> {
+        let action = Action::TokenDelegate(TokenDelegateAction {
+            validator,
+            is_undelegate,
+            wei,
+        });
+        let req = action.sign_sync(
+            signer,
+            nonce,
+            vault_address,
+            expires_after,
+            self.chain,
+        )?;
+        self.send(req).await?.into_default()
+    }
+
+    /// Reserve rate-limit request capacity.
+    pub async fn reserve_request_weight<S: SignerSync>(
+        &self,
+        signer: &S,
+        weight: u32,
+        nonce: u64,
+        vault_address: Option<Address>,
+        expires_after: Option<DateTime<Utc>>,
+    ) -> Result<()> {
+        let action = Action::ReserveRequestWeight { weight };
+        let req = action.sign_sync(
+            signer,
+            nonce,
+            vault_address,
+            expires_after,
+            self.chain,
+        )?;
+        self.send(req).await?.into_default()
+    }
+
+    /// HIP-3 backstop liquidator transfer.
+    pub async fn hip3_liquidator_transfer<S: SignerSync>(
+        &self,
+        signer: &S,
+        dex: String,
+        ntl: u64,
+        is_deposit: bool,
+        nonce: u64,
+        vault_address: Option<Address>,
+        expires_after: Option<DateTime<Utc>>,
+    ) -> Result<()> {
+        let action = Action::Hip3LiquidatorTransfer(Hip3LiquidatorTransferAction {
+            dex,
+            ntl,
+            is_deposit,
+        });
+        let req = action.sign_sync(
+            signer,
+            nonce,
+            vault_address,
+            expires_after,
+            self.chain,
+        )?;
+        self.send(req).await?.into_default()
+    }
 }
 
 /// Builder for constructing and executing multisig transactions on Hyperliquid.

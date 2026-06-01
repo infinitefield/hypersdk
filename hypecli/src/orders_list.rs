@@ -7,6 +7,7 @@ use std::io::Write;
 
 use clap::{Args, Subcommand, ValueEnum};
 use hypersdk::{Address, Decimal, hypercore};
+use hypercore::types::OrderUpdate;
 use serde::Serialize;
 
 /// Output format for order/fill data.
@@ -110,7 +111,7 @@ impl ListOrdersCmd {
             .into_iter()
             .filter(|o| {
                 if let Some(ref coin) = self.coin {
-                    o.coin.eq_ignore_ascii_case(coin)
+                    o.order.coin.eq_ignore_ascii_case(coin)
                 } else {
                     true
                 }
@@ -128,22 +129,24 @@ impl ListOrdersCmd {
 
     fn print_pretty(
         &self,
-        orders: &[hypersdk::hypercore::types::BasicOrder],
+        updates: &[OrderUpdate<hypersdk::hypercore::types::BasicOrder>],
     ) -> anyhow::Result<()> {
-        if orders.is_empty() {
+        if updates.is_empty() {
             let filter = self.coin.as_ref().map(|c| format!(" for '{}'", c)).unwrap_or_default();
             println!("No orders found{}.", filter);
             return Ok(());
         }
 
-        println!("Historical Orders ({} found):\n", orders.len());
+        println!("Historical Orders ({} found):\n", updates.len());
 
-        for order in orders {
+        for u in updates {
+            let order = &u.order;
             let ts = chrono::DateTime::from_timestamp_millis(order.timestamp as i64)
                 .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
                 .unwrap_or_else(|| format!("{}ms", order.timestamp));
             println!("  {} | {:?} | {} {} @ {}", ts, order.order_type, order.side, order.sz, order.limit_px);
             println!("    Coin:      {}", order.coin);
+            println!("    Status:    {:?}", u.status);
             println!("    OID:       {}", order.oid);
             if let Some(ref cloid) = order.cloid {
                 println!("    CLOID:     {}", cloid);
@@ -162,15 +165,16 @@ impl ListOrdersCmd {
 
     fn print_table(
         &self,
-        orders: &[hypersdk::hypercore::types::BasicOrder],
+        updates: &[OrderUpdate<hypersdk::hypercore::types::BasicOrder>],
     ) -> anyhow::Result<()> {
         let mut writer = tabwriter::TabWriter::new(std::io::stdout());
-        writeln!(writer, "timestamp\tcoin\tside\tlimit_px\tsz\torig_sz\toid\tcloid")?;
+        writeln!(writer, "timestamp\tcoin\tside\tlimit_px\tsz\torig_sz\toid\tcloid\tstatus")?;
 
-        for order in orders {
+        for u in updates {
+            let order = &u.order;
             writeln!(
                 writer,
-                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:?}",
                 order.timestamp,
                 order.coin,
                 order.side,
@@ -178,7 +182,8 @@ impl ListOrdersCmd {
                 order.sz,
                 order.orig_sz,
                 order.oid,
-                order.cloid.as_ref().map(|c| c.to_string()).unwrap_or_else(|| "-".to_string())
+                order.cloid.as_ref().map(|c| c.to_string()).unwrap_or_else(|| "-".to_string()),
+                u.status
             )?;
         }
         writer.flush()?;
@@ -187,22 +192,25 @@ impl ListOrdersCmd {
 
     fn print_json(
         &self,
-        orders: &[hypersdk::hypercore::types::BasicOrder],
+        updates: &[OrderUpdate<hypersdk::hypercore::types::BasicOrder>],
     ) -> anyhow::Result<()> {
-        let output: Vec<OrderOutput> = orders
+        let output: Vec<OrderOutput> = updates
             .iter()
-            .map(|o| OrderOutput {
-                timestamp: o.timestamp,
-                coin: o.coin.clone(),
-                side: o.side.to_string(),
-                limit_px: o.limit_px,
-                sz: o.sz,
-                oid: o.oid,
-                orig_sz: o.orig_sz,
-                cloid: o.cloid.as_ref().map(|c| c.to_string()),
-                order_type: format!("{:?}", o.order_type),
-                tif: o.tif.map(|t| format!("{:?}", t)),
-                reduce_only: o.reduce_only,
+            .map(|u| {
+                let o = &u.order;
+                OrderOutput {
+                    timestamp: o.timestamp,
+                    coin: o.coin.clone(),
+                    side: o.side.to_string(),
+                    limit_px: o.limit_px,
+                    sz: o.sz,
+                    oid: o.oid,
+                    orig_sz: o.orig_sz,
+                    cloid: o.cloid.as_ref().map(|c| c.to_string()),
+                    order_type: format!("{:?}", o.order_type),
+                    tif: o.tif.map(|t| format!("{:?}", t)),
+                    reduce_only: o.reduce_only,
+                }
             })
             .collect();
         println!("{}", serde_json::to_string_pretty(&output)?);

@@ -119,6 +119,52 @@ pub enum Action {
     UserDexAbstraction(UserDexAbstractionAction),
     /// User-signed: Set abstraction mode for a user.
     UserSetAbstraction(UserSetAbstractionAction),
+    /// Place a TWAP order.
+    #[from(skip)]
+    TwapOrder {
+        twap: TwapOrderParams,
+    },
+    /// Cancel a TWAP order.
+    #[from(skip)]
+    TwapCancel {
+        /// Asset index.
+        a: usize,
+        /// TWAP ID to cancel.
+        t: u64,
+    },
+    /// Withdraw to Arbitrum L1.
+    #[from(skip)]
+    Withdraw3(Withdraw3Action),
+    /// Transfer between spot and perp balances.
+    #[from(skip)]
+    UsdClassTransfer(UsdClassTransferAction),
+    /// Stake native token (HYPE).
+    #[from(skip)]
+    #[serde(rename = "cDeposit")]
+    CDeposit {
+        /// Amount in wei (native token).
+        wei: u64,
+    },
+    /// Unstake native token (HYPE). 7-day queue.
+    #[from(skip)]
+    #[serde(rename = "cWithdraw")]
+    CWithdraw {
+        /// Amount in wei (native token).
+        wei: u64,
+    },
+    /// Delegate or undelegate staked tokens to a validator.
+    #[from(skip)]
+    TokenDelegate(TokenDelegateAction),
+    /// Reserve rate-limit request capacity.
+    #[from(skip)]
+    ReserveRequestWeight {
+        /// Number of requests to reserve (0.0005 USDC per request).
+        weight: u32,
+    },
+    /// HIP-3 backstop liquidator deposit/withdraw.
+    #[from(skip)]
+    #[serde(rename = "hip3LiquidatorTransfer")]
+    Hip3LiquidatorTransfer(Hip3LiquidatorTransferAction),
 }
 
 impl Action {
@@ -234,7 +280,13 @@ impl Action {
             | Action::Noop
             | Action::GossipPriorityBid(_)
             | Action::AgentEnableDexAbstraction
-            | Action::AgentSetAbstraction { .. } => {
+            | Action::AgentSetAbstraction { .. }
+            | Action::TwapOrder { .. }
+            | Action::TwapCancel { .. }
+            | Action::CDeposit { .. }
+            | Action::CWithdraw { .. }
+            | Action::ReserveRequestWeight { .. }
+            | Action::Hip3LiquidatorTransfer(_) => {
                 let connection_id = self.hash(nonce, maybe_vault_address, expires_after)?;
                 let agent = solidity::Agent {
                     source: if chain.is_mainnet() { "a" } else { "b" }.to_string(),
@@ -276,6 +328,18 @@ impl Action {
             Action::UserSetAbstraction(inner) => {
                 let typed_data =
                     get_typed_data::<solidity::UserSetAbstraction>(&inner, chain, None);
+                signer.sign_dynamic_typed_data_sync(&typed_data)?
+            }
+            Action::Withdraw3(inner) => {
+                let typed_data = get_typed_data::<solidity::Withdraw3>(&inner, chain, None);
+                signer.sign_dynamic_typed_data_sync(&typed_data)?
+            }
+            Action::UsdClassTransfer(inner) => {
+                let typed_data = get_typed_data::<solidity::UsdClassTransfer>(&inner, chain, None);
+                signer.sign_dynamic_typed_data_sync(&typed_data)?
+            }
+            Action::TokenDelegate(inner) => {
+                let typed_data = get_typed_data::<solidity::TokenDelegate>(&inner, chain, None);
                 signer.sign_dynamic_typed_data_sync(&typed_data)?
             }
             // MultiSig - wrap in envelope
@@ -344,7 +408,13 @@ impl Action {
             | Action::Noop
             | Action::GossipPriorityBid(_)
             | Action::AgentEnableDexAbstraction
-            | Action::AgentSetAbstraction { .. } => {
+            | Action::AgentSetAbstraction { .. }
+            | Action::TwapOrder { .. }
+            | Action::TwapCancel { .. }
+            | Action::CDeposit { .. }
+            | Action::CWithdraw { .. }
+            | Action::ReserveRequestWeight { .. }
+            | Action::Hip3LiquidatorTransfer(_) => {
                 let connection_id = self.hash(nonce, maybe_vault_address, expires_after)?;
                 let agent = solidity::Agent {
                     source: if chain.is_mainnet() { "a" } else { "b" }.to_string(),
@@ -388,6 +458,18 @@ impl Action {
             Action::UserSetAbstraction(inner) => {
                 let typed_data =
                     get_typed_data::<solidity::UserSetAbstraction>(&inner, chain, None);
+                signer.sign_dynamic_typed_data(&typed_data).await?
+            }
+            Action::Withdraw3(inner) => {
+                let typed_data = get_typed_data::<solidity::Withdraw3>(&inner, chain, None);
+                signer.sign_dynamic_typed_data(&typed_data).await?
+            }
+            Action::UsdClassTransfer(inner) => {
+                let typed_data = get_typed_data::<solidity::UsdClassTransfer>(&inner, chain, None);
+                signer.sign_dynamic_typed_data(&typed_data).await?
+            }
+            Action::TokenDelegate(inner) => {
+                let typed_data = get_typed_data::<solidity::TokenDelegate>(&inner, chain, None);
                 signer.sign_dynamic_typed_data(&typed_data).await?
             }
             Action::MultiSig(inner) => {
@@ -451,7 +533,13 @@ impl Action {
             | Action::Noop
             | Action::GossipPriorityBid(_)
             | Action::AgentEnableDexAbstraction
-            | Action::AgentSetAbstraction { .. } => {
+            | Action::AgentSetAbstraction { .. }
+            | Action::TwapOrder { .. }
+            | Action::TwapCancel { .. }
+            | Action::CDeposit { .. }
+            | Action::CWithdraw { .. }
+            | Action::ReserveRequestWeight { .. }
+            | Action::Hip3LiquidatorTransfer(_) => {
                 let expires_after =
                     maybe_expires_after.map(|after| after.timestamp_millis() as u64);
                 let connection_id = self
@@ -496,6 +584,18 @@ impl Action {
             Action::UserSetAbstraction(inner) => {
                 let typed_data =
                     get_typed_data::<solidity::UserSetAbstraction>(&inner, chain, None);
+                Ok(typed_data.eip712_signing_hash()?)
+            }
+            Action::Withdraw3(inner) => {
+                let typed_data = get_typed_data::<solidity::Withdraw3>(&inner, chain, None);
+                Ok(typed_data.eip712_signing_hash()?)
+            }
+            Action::UsdClassTransfer(inner) => {
+                let typed_data = get_typed_data::<solidity::UsdClassTransfer>(&inner, chain, None);
+                Ok(typed_data.eip712_signing_hash()?)
+            }
+            Action::TokenDelegate(inner) => {
+                let typed_data = get_typed_data::<solidity::TokenDelegate>(&inner, chain, None);
                 Ok(typed_data.eip712_signing_hash()?)
             }
             Action::MultiSig(inner) => {
@@ -1180,6 +1280,83 @@ pub struct MultiSigAction {
     pub signatures: Vec<Signature>,
     /// The multisig payload
     pub payload: MultiSigPayload,
+}
+
+/// TWAP order parameters.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TwapOrderParams {
+    /// Asset index.
+    pub a: usize,
+    /// `true` for buy, `false` for sell.
+    pub b: bool,
+    /// Size.
+    #[serde(with = "rust_decimal::serde::str")]
+    pub s: Decimal,
+    /// Reduce only.
+    pub r: bool,
+    /// Duration in minutes.
+    pub m: u32,
+    /// Randomize execution timing.
+    pub t: bool,
+}
+
+/// Withdraw to Arbitrum L1.
+///
+/// Uses EIP-712 human-readable signing. $1 fee, ~5 minute finalization.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Withdraw3Action {
+    pub signature_chain_id: String,
+    pub hyperliquid_chain: Chain,
+    #[serde(
+        serialize_with = "crate::hypercore::utils::serialize_address_as_hex",
+        deserialize_with = "crate::hypercore::utils::deserialize_address_from_hex"
+    )]
+    pub destination: Address,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub amount: Decimal,
+    pub time: u64,
+}
+
+/// Transfer between spot and perp balances.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UsdClassTransferAction {
+    pub signature_chain_id: String,
+    pub hyperliquid_chain: Chain,
+    /// Amount to transfer, optionally with " subaccount:0x..." suffix.
+    pub amount: String,
+    /// `true` to transfer to perp, `false` to transfer to spot.
+    pub to_perp: bool,
+    pub nonce: u64,
+}
+
+/// Delegate or undelegate staked tokens to a validator.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenDelegateAction {
+    /// Validator address.
+    #[serde(
+        serialize_with = "crate::hypercore::utils::serialize_address_as_hex",
+        deserialize_with = "crate::hypercore::utils::deserialize_address_from_hex"
+    )]
+    pub validator: Address,
+    /// `true` to undelegate, `false` to delegate.
+    pub is_undelegate: bool,
+    /// Amount in wei of native token.
+    pub wei: u64,
+}
+
+/// HIP-3 backstop liquidator transfer.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Hip3LiquidatorTransferAction {
+    /// DEX name.
+    pub dex: String,
+    /// Notional amount in 1e-6 units (must be multiple of 1,000,000,000).
+    pub ntl: u64,
+    /// `true` to deposit, `false` to withdraw.
+    pub is_deposit: bool,
 }
 
 #[cfg(test)]
