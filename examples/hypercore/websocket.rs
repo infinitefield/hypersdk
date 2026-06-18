@@ -29,7 +29,7 @@
 //!
 //! - `AllMids`: Mid prices for all markets
 //! - `Trades { coin }`: Real-time trades for a specific coin
-//! - `L2Book { coin, n_sig_figs, mantissa }`: Order book updates with optional price-level aggregation
+//! - `L2Book { coin, n_sig_figs, mantissa, fast }`: Order book updates with optional price-level aggregation or fast 5-level mode
 //! - `UserEvents { user }`: User-specific events (fills, liquidations)
 
 use anyhow::Context;

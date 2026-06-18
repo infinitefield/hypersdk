@@ -50,6 +50,7 @@
 //!     coin: "BTC".into(),
 //!     n_sig_figs: None,
 //!     mantissa: None,
+//!     fast: None,
 //! });
 //!
 //! while let Some(event) = ws.next().await {

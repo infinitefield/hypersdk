@@ -364,6 +364,11 @@ pub enum Subscription {
         /// Further aggregation; only valid when `n_sig_figs` is `5` (values: 1, 2, or 5).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         mantissa: Option<u8>,
+        /// Opt into Hyperliquid's faster l2Book mode introduced with the websocket push-frequency
+        /// migration: `fast: true` pushes 5 levels roughly every 0.5s, while the default feed
+        /// remains the deeper, slower 20-level snapshot stream.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fast: Option<bool>,
     },
     /// Real-time candlestick updates
     #[display("candle({coin}@{interval})")]
@@ -4258,6 +4263,34 @@ mod tests {
         assert_eq!(json, serde_json::json!({ "type": "fastAssetCtxs" }));
         let deserialized: Subscription = serde_json::from_value(json).unwrap();
         assert_eq!(sub, deserialized);
+    }
+
+    #[test]
+    fn test_l2_book_fast_subscription() {
+        let slow = Subscription::L2Book {
+            coin: "BTC".to_string(),
+            n_sig_figs: None,
+            mantissa: None,
+            fast: None,
+        };
+        assert_eq!(
+            serde_json::to_value(&slow).unwrap(),
+            serde_json::json!({ "type": "l2Book", "coin": "BTC" })
+        );
+
+        let fast = Subscription::L2Book {
+            coin: "BTC".to_string(),
+            n_sig_figs: None,
+            mantissa: None,
+            fast: Some(true),
+        };
+        let json = serde_json::to_value(&fast).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({ "type": "l2Book", "coin": "BTC", "fast": true })
+        );
+        let deserialized: Subscription = serde_json::from_value(json).unwrap();
+        assert_eq!(fast, deserialized);
     }
 
     #[test]

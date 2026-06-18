@@ -60,6 +60,7 @@
 //!     coin: "BTC".into(),
 //!     n_sig_figs: None,
 //!     mantissa: None,
+//!     fast: None,
 //! });
 //!
 //! while let Some(event) = ws.next().await {
@@ -355,6 +356,7 @@ pub struct Connection {
 ///         coin: "ETH".into(),
 ///         n_sig_figs: None,
 ///         mantissa: None,
+///         fast: None,
 ///     });
 ///
 ///     // Later, unsubscribe
@@ -465,7 +467,7 @@ impl Connection {
     ///
     /// Subscribe to market data:
     /// - `ws.subscribe(Subscription::Trades { coin: "BTC".into() })`
-    /// - `ws.subscribe(Subscription::L2Book { coin: "ETH".into(), n_sig_figs: None, mantissa: None })`
+    /// - `ws.subscribe(Subscription::L2Book { coin: "ETH".into(), n_sig_figs: None, mantissa: None, fast: None })`
     pub fn subscribe(&self, subscription: Subscription) {
         let _ = self.tx.send((true, subscription));
     }
@@ -534,7 +536,7 @@ impl ConnectionHandle {
     ///
     /// Subscribe to market data:
     /// - `ws.subscribe(Subscription::Trades { coin: "BTC".into() })`
-    /// - `ws.subscribe(Subscription::L2Book { coin: "ETH".into(), n_sig_figs: None, mantissa: None })`
+    /// - `ws.subscribe(Subscription::L2Book { coin: "ETH".into(), n_sig_figs: None, mantissa: None, fast: None })`
     pub fn subscribe(&self, subscription: Subscription) {
         let _ = self.tx.send((true, subscription));
     }
