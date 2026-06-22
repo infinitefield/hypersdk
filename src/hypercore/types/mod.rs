@@ -2418,6 +2418,10 @@ pub struct BatchOrder {
 pub struct Builder {
     /// Builder address.
     #[serde(rename = "b")]
+    #[serde(
+        serialize_with = "crate::hypercore::utils::serialize_address_as_hex",
+        deserialize_with = "crate::hypercore::utils::deserialize_address_from_hex"
+    )]
     pub builder_address: Address,
     /// Builder fee in tenths of basis points.
     #[serde(rename = "f")]
