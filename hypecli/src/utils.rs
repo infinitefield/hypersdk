@@ -19,9 +19,10 @@ use clap::ValueEnum;
 use hypersdk::{Address, hypercore::PrivateKeySigner};
 use iroh::{
     Endpoint, SecretKey,
-    address_lookup::{dns::DnsAddressLookup, mdns::MdnsAddressLookup, pkarr::PkarrPublisher},
+    address_lookup::{dns::DnsAddressLookup, pkarr::PkarrPublisher},
     endpoint::presets::Minimal,
 };
+use iroh_mdns_address_lookup::MdnsAddressLookup;
 use iroh_tickets::endpoint::EndpointTicket;
 use strsim::levenshtein;
 

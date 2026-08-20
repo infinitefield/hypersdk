@@ -28,6 +28,7 @@ use prio::PrioCmd;
 use send::SendCmd;
 use subscribe::SubscribeCmd;
 use to_multisig::ToMultiSigCmd;
+use tracing_subscriber::EnvFilter;
 use twap::TwapCmd;
 use vault::VaultCmd;
 
@@ -140,6 +141,13 @@ pub struct SignerArgs {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
+    // Off unless RUST_LOG is set. `RUST_LOG=trezor_client=trace` shows the raw
+    // device message exchange, which is the only way to see what a Trezor is
+    // actually asking for.
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_writer(std::io::stderr)
+        .init();
     let cli = Cli::parse();
 
     if cli.agent_help {

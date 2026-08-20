@@ -182,7 +182,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 ## Runtime dependencies
 [dependencies]
-alloy = { version = "1.5.2", default-features = false, features = ["contract", "eip712", "getrandom", "providers", "reqwest", "reqwest-rustls-tls", "rpc", "rpc-types", "signer-local", "signers", "sol-types"] }
+alloy = { version = "2.4", default-features = false, features = ["contract", "eip712", "getrandom", "providers", "reqwest", "reqwest-rustls-tls", "rpc", "rpc-types", "signer-local", "signers", "sol-types"] }
 anyhow = "1"
 thiserror = "2"
 const-hex = { version = "1.17", features = ["serde"] }
@@ -206,7 +206,7 @@ num-traits = "0.2"
 
 ## Development and test dependencies
 [dev-dependencies]
-alloy = { version = "1", features = ["pubsub", "signer-keystore"], default-features = false }
+alloy = { version = "2.4", features = ["pubsub", "signer-keystore"], default-features = false }
 clap = { version = "4", features = ["derive"] }
 dotenvy = "0.15.7"
 indicatif = "0.18.3"
