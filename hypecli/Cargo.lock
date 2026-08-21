@@ -7204,7 +7204,7 @@ dependencies = [
 [[package]]
 name = "trezor-client"
 version = "0.1.6"
-source = "git+https://github.com/infinitefield/trezor-firmware.git?branch=feat%2Feip712-streaming-protocol#df4fcb939f8bc43ae1908462c208331581040c0e"
+source = "git+https://github.com/infinitefield/trezor-firmware.git?branch=feat%2Feip712-empty-passphrase#0db467e76d50c7ae99a3a9df39643c17692fdcc9"
 dependencies = [
  "byteorder",
  "hex",

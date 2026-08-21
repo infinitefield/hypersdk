@@ -22,8 +22,9 @@ include = [
 
 [patch.crates-io]
 alloy-signer-trezor = { git = "https://github.com/infinitefield/alloy-signer-trezor.git", branch = "main" }
-# Tracks https://github.com/trezor/trezor-firmware/pull/7038 (EIP-712 typed data signing).
-trezor-client = { git = "https://github.com/infinitefield/trezor-firmware.git", branch = "feat/eip712-streaming-protocol" }
+# PR #7038 (EIP-712 typed data signing) plus an empty-passphrase ack, so the
+# standard wallet does not prompt on every session.
+trezor-client = { git = "https://github.com/infinitefield/trezor-firmware.git", branch = "feat/eip712-empty-passphrase" }
 
 [dependencies]
 hypersdk = { path = "..", version = "0.2.13" }

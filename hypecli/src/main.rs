@@ -141,11 +141,11 @@ pub struct SignerArgs {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
-    // Off unless RUST_LOG is set. `RUST_LOG=trezor_client=trace` shows the raw
-    // device message exchange, which is the only way to see what a Trezor is
-    // actually asking for.
+    // Silent unless RUST_LOG is set. from_default_env() would default to ERROR,
+    // which spams a line per probe while scanning for absent hardware wallets.
+    // `RUST_LOG=trezor_client=trace` shows the raw device message exchange.
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
+        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("off")))
         .with_writer(std::io::stderr)
         .init();
     let cli = Cli::parse();
