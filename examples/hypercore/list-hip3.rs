@@ -9,7 +9,7 @@ use hypersdk::hypercore;
 async fn main() -> anyhow::Result<()> {
     let client = hypercore::mainnet();
 
-    let dexes = client.perp_dexs().await?;
+    let dexes = client.perp_dexes().await?;
     for dex in dexes {
         println!("\n\nmarkets for {dex}");
         println!("deployer fee scale: {:?}", dex.deployer_fee_scale());

@@ -3423,9 +3423,9 @@ pub struct VaultDetails {
 /// ```ignore
 /// let now = chrono::Utc::now().timestamp() as u64;
 /// let elapsed = now.saturating_sub(slot.start_time_seconds);
-/// let progress = elapsed as f64 / slot.duration_seconds as f64; // 0.0 → 1.0
-/// let start: Decimal = slot.start_gas.parse()?;
-/// let end: Decimal = slot.end_gas.as_ref().and_then(|s| s.parse().ok()).unwrap_or(start);
+/// let progress = elapsed as f64 / slot.duration_seconds as f64; // 0.0 to 1.0
+/// let start: Decimal = slot.start_gas;
+/// let end: Decimal = slot.end_gas.unwrap_or(start);
 /// let current_price = start - (start - end) * Decimal::from_f64_retain(progress).unwrap();
 /// ```
 ///
