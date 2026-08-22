@@ -37,6 +37,22 @@ sol! {
         uint64 nonce;
     }
 
+    /// Core to EVM transfer carrying a data payload for `ICoreReceiveWithData` contracts.
+    ///
+    /// EIP-712 type: `HyperliquidTransaction:SendToEvmWithData`.
+    struct SendToEvmWithData {
+        string hyperliquidChain;
+        string token;
+        string amount;
+        string sourceDex;
+        string destinationRecipient;
+        string addressEncoding;
+        uint32 destinationChainId;
+        uint64 gasLimit;
+        bytes data;
+        uint64 nonce;
+    }
+
     struct ApproveAgent {
         string hyperliquidChain;
         address agentAddress;

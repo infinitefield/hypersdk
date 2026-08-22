@@ -35,5 +35,22 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
+    // Fetch all perps markets
+    let markets = client.perps().await?;
+
+    // Display market information
+    for market in markets {
+        println!(
+            "{}\t{}\t{}\t{}\t{:?}\t{}\t{}",
+            market.name,
+            market.index,
+            market.name,
+            market.collateral,
+            market.deployer_fee_scale,
+            market.growth_mode,
+            market.aligned_quote_token
+        );
+    }
+
     Ok(())
 }

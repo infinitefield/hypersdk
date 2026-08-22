@@ -50,6 +50,7 @@
 //!     coin: "BTC".into(),
 //!     n_sig_figs: None,
 //!     mantissa: None,
+//!     fast: false,
 //! });
 //!
 //! while let Some(event) = ws.next().await {
@@ -713,7 +714,10 @@ impl PriceTick {
     /// See the PriceTick documentation for calculation details.
     pub fn tick_for(&self, price: Decimal) -> Option<Decimal> {
         let sig_figs = price.log10();
-        let sig_figs_n = sig_figs.ceil().to_i32()? as i64;
+        // Integer digits = floor(log10(price)) + 1. ceil() and floor+1 agree
+        // except when log10(price) is exact (price a power of ten), where
+        // ceil() undercounts by one and yields a tick ten times too fine.
+        let sig_figs_n = sig_figs.floor().to_i32()? as i64 + 1;
         let decimals = 5_i64 - sig_figs_n;
         let max_decimals = decimals.clamp(0, self.max_decimals);
         Some(Decimal::TEN.powi(-max_decimals))
@@ -799,7 +803,7 @@ impl PriceTick {
                 RoundingStrategy::ToNegativeInfinity
             }
         };
-        let rounded = price.round_dp_with_strategy(tick.scale(), strategy);
+        let rounded = (price / tick).round_dp_with_strategy(0, strategy) * tick;
         Some(rounded)
     }
 }
@@ -841,6 +845,8 @@ pub struct PerpMarket {
     pub isolated_margin: bool,
     /// Margin mode for this market
     pub margin_mode: Option<MarginMode>,
+    /// The deployer fee scale for this market.
+    pub deployer_fee_scale: Option<Decimal>,
     /// Whether growth mode is enabled for this market
     pub growth_mode: bool,
     /// Whether the quote token is aligned for this market
@@ -1151,6 +1157,26 @@ mod tick_tests {
                 price, expected_price, output_price
             );
         }
+    }
+
+    #[test]
+    fn power_of_ten_prices_keep_five_sig_figs() {
+        // Prices that are exact powers of ten exercise the difference
+        // between ceil(log10) and floor(log10) + 1. The latter is the
+        // documented algorithm; the former undercounts the integer digits
+        // by one and yields a tick ten times too fine.
+        let table = PriceTick::for_perp(0); // max_decimals = 6
+        for (price, expected_tick) in [
+            (dec!(1000), dec!(0.1)),
+            (dec!(100), dec!(0.01)),
+            (dec!(10), dec!(0.001)),
+            (dec!(1), dec!(0.0001)),
+        ] {
+            assert_eq!(table.tick_for(price), Some(expected_tick), "{price}");
+        }
+
+        let spot = PriceTick::for_spot(0); // max_decimals = 8
+        assert_eq!(spot.tick_for(dec!(1000)), Some(dec!(0.1)));
     }
 }
 
@@ -1595,7 +1621,6 @@ pub async fn perp_dexes(
             dex.map(|dex| Dex {
                 name: dex.name,
                 index,
-                deployer_fee_scale: dex.deployer_fee_scale,
             })
         })
         .collect();
@@ -1616,8 +1641,6 @@ pub async fn perp_dexs(
 #[serde(rename_all = "camelCase")]
 struct PerpDex {
     name: String,
-    #[serde(default, with = "rust_decimal::serde::str_option")]
-    deployer_fee_scale: Option<Decimal>,
 }
 
 /// Fetches all available perpetual futures markets from HyperCore.
@@ -1664,6 +1687,7 @@ pub async fn perp_markets(
                 collateral: collateral.clone(),
                 isolated_margin: perp.only_isolated,
                 margin_mode: perp.margin_mode,
+                deployer_fee_scale: perp.deployer_fee_scale,
                 growth_mode: perp.growth_mode,
                 aligned_quote_token: perp.aligned_quote_token,
                 table: PriceTick::for_perp(perp.sz_decimals),
@@ -1813,6 +1837,8 @@ struct PerpUniverseItem {
     only_isolated: bool,
     margin_mode: Option<MarginMode>,
     sz_decimals: i64,
+    #[serde(default, with = "rust_decimal::serde::str_option")]
+    deployer_fee_scale: Option<Decimal>,
     #[serde(default, deserialize_with = "deserialize_growth_mode")]
     growth_mode: bool,
     #[serde(default, alias = "isAlignedQuoteToken", alias = "isQuoteTokenAligned")]

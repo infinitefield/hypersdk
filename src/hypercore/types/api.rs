@@ -6,7 +6,7 @@
 
 use alloy::{
     dyn_abi::TypedData,
-    primitives::{Address, B256},
+    primitives::{Address, B256, Bytes},
     signers::{Signer, SignerSync, k256::ecdsa::RecoveryId},
 };
 use chrono::{DateTime, Utc};
@@ -14,7 +14,7 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
-use super::solidity;
+use super::{deploy, solidity};
 use crate::hypercore::{
     ApiError, Chain,
     types::{
@@ -27,7 +27,7 @@ use crate::hypercore::{
 /// Request for an action.
 ///
 /// Contains the action, a nonce, signature, optional vault address, and optional expiry.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActionRequest {
     /// Action.
@@ -85,6 +85,10 @@ pub enum Action {
     SpotSend(SpotSendAction),
     /// EVM user modify.
     EvmUserModify {
+        // rename_all = "camelCase" on the enum applies to variant names but not
+        // struct variant fields when using #[serde(tag = "type")]. Explicit rename
+        // fixes both the JSON body and the msgpack signing hash.
+        #[serde(rename = "usingBigBlocks")]
         using_big_blocks: bool,
     },
     ApproveAgent(ApproveAgent),
@@ -160,11 +164,42 @@ pub enum Action {
     ReserveRequestWeight {
         /// Number of requests to reserve (0.0005 USDC per request).
         weight: u32,
+        /// Account the reserved capacity is credited to. `None` credits the signer.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        destination: Option<Address>,
     },
     /// HIP-3 backstop liquidator deposit/withdraw.
     #[from(skip)]
     #[serde(rename = "hip3LiquidatorTransfer")]
     Hip3LiquidatorTransfer(Hip3LiquidatorTransferAction),
+    /// HIP-4 outcome token split/merge/negate.
+    #[from(skip)]
+    UserOutcome(UserOutcomeAction),
+    /// Core to EVM transfer carrying a data payload.
+    #[from(skip)]
+    SendToEvmWithData(SendToEvmWithDataAction),
+    /// Add isolated margin up to a target leverage instead of a USDC amount.
+    #[from(skip)]
+    TopUpIsolatedOnlyMargin(TopUpIsolatedOnlyMargin),
+    /// Claim accrued referral and builder rewards.
+    #[from(skip)]
+    ClaimRewards,
+    /// Authorize an AQAv2 role for an aligned quote asset.
+    #[from(skip)]
+    #[serde(rename = "authorizeAqav2Role")]
+    AuthorizeAqav2Role(AuthorizeAqav2Role),
+    /// Validator vote on the risk-free rate for an aligned quote asset.
+    #[from(skip)]
+    ValidatorL1Stream(ValidatorL1Stream),
+    /// HIP-1/HIP-2 spot token deployment, and HIP-4 outcome deployment.
+    #[from(skip)]
+    SpotDeploy(deploy::SpotDeployAction),
+    /// HIP-3 perp DEX deployment and operation.
+    #[from(skip)]
+    PerpDeploy(deploy::PerpDeployAction),
+    /// HIP-4 outcome deployer activation.
+    #[from(skip)]
+    ActivateOutcomeDeployer(deploy::ActivateOutcomeDeployer),
 }
 
 impl Action {
@@ -218,7 +253,7 @@ impl Action {
 /// API response wrapper.
 ///
 /// The `Ok` variant contains a successful response, while `Err` holds an error message.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "status", content = "response")]
 #[serde(rename_all = "camelCase")]
 pub enum Response {
@@ -229,7 +264,7 @@ pub enum Response {
 /// Successful API response data.
 ///
 /// Currently supports order responses and a default placeholder.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 #[serde(rename_all = "camelCase")]
 pub enum OkResponse {
@@ -286,7 +321,15 @@ impl Action {
             | Action::CDeposit { .. }
             | Action::CWithdraw { .. }
             | Action::ReserveRequestWeight { .. }
-            | Action::Hip3LiquidatorTransfer(_) => {
+            | Action::Hip3LiquidatorTransfer(_)
+            | Action::UserOutcome(_)
+            | Action::TopUpIsolatedOnlyMargin(_)
+            | Action::ClaimRewards
+            | Action::AuthorizeAqav2Role(_)
+            | Action::ValidatorL1Stream(_)
+            | Action::SpotDeploy(_)
+            | Action::PerpDeploy(_)
+            | Action::ActivateOutcomeDeployer(_) => {
                 let connection_id = self.hash(nonce, maybe_vault_address, expires_after)?;
                 let agent = solidity::Agent {
                     source: if chain.is_mainnet() { "a" } else { "b" }.to_string(),
@@ -301,6 +344,10 @@ impl Action {
             }
             Action::SendAsset(inner) => {
                 let typed_data = get_typed_data::<solidity::SendAsset>(&inner, chain, None);
+                signer.sign_dynamic_typed_data_sync(&typed_data)?
+            }
+            Action::SendToEvmWithData(inner) => {
+                let typed_data = get_typed_data::<solidity::SendToEvmWithData>(&inner, chain, None);
                 signer.sign_dynamic_typed_data_sync(&typed_data)?
             }
             Action::SpotSend(inner) => {
@@ -414,7 +461,15 @@ impl Action {
             | Action::CDeposit { .. }
             | Action::CWithdraw { .. }
             | Action::ReserveRequestWeight { .. }
-            | Action::Hip3LiquidatorTransfer(_) => {
+            | Action::Hip3LiquidatorTransfer(_)
+            | Action::UserOutcome(_)
+            | Action::TopUpIsolatedOnlyMargin(_)
+            | Action::ClaimRewards
+            | Action::AuthorizeAqav2Role(_)
+            | Action::ValidatorL1Stream(_)
+            | Action::SpotDeploy(_)
+            | Action::PerpDeploy(_)
+            | Action::ActivateOutcomeDeployer(_) => {
                 let connection_id = self.hash(nonce, maybe_vault_address, expires_after)?;
                 let agent = solidity::Agent {
                     source: if chain.is_mainnet() { "a" } else { "b" }.to_string(),
@@ -431,6 +486,10 @@ impl Action {
             }
             Action::SendAsset(inner) => {
                 let typed_data = get_typed_data::<solidity::SendAsset>(&inner, chain, None);
+                signer.sign_dynamic_typed_data(&typed_data).await?
+            }
+            Action::SendToEvmWithData(inner) => {
+                let typed_data = get_typed_data::<solidity::SendToEvmWithData>(&inner, chain, None);
                 signer.sign_dynamic_typed_data(&typed_data).await?
             }
             Action::SpotSend(inner) => {
@@ -539,7 +598,15 @@ impl Action {
             | Action::CDeposit { .. }
             | Action::CWithdraw { .. }
             | Action::ReserveRequestWeight { .. }
-            | Action::Hip3LiquidatorTransfer(_) => {
+            | Action::Hip3LiquidatorTransfer(_)
+            | Action::UserOutcome(_)
+            | Action::TopUpIsolatedOnlyMargin(_)
+            | Action::ClaimRewards
+            | Action::AuthorizeAqav2Role(_)
+            | Action::ValidatorL1Stream(_)
+            | Action::SpotDeploy(_)
+            | Action::PerpDeploy(_)
+            | Action::ActivateOutcomeDeployer(_) => {
                 let expires_after =
                     maybe_expires_after.map(|after| after.timestamp_millis() as u64);
                 let connection_id = self
@@ -557,6 +624,10 @@ impl Action {
             }
             Action::SendAsset(inner) => {
                 let typed_data = get_typed_data::<solidity::SendAsset>(&inner, chain, None);
+                Ok(typed_data.eip712_signing_hash()?)
+            }
+            Action::SendToEvmWithData(inner) => {
+                let typed_data = get_typed_data::<solidity::SendToEvmWithData>(&inner, chain, None);
                 Ok(typed_data.eip712_signing_hash()?)
             }
             Action::SpotSend(inner) => {
@@ -1347,6 +1418,103 @@ pub struct TokenDelegateAction {
     pub wei: u64,
 }
 
+/// Encoding of [`SendToEvmWithDataAction::destination_recipient`].
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum AddressEncoding {
+    /// 20-byte address in `0x`-prefixed hex, the usual EVM form.
+    Hex,
+    /// Base58-encoded address, for destination chains that use it.
+    Base58,
+}
+
+/// Transfer a token from Core to the EVM with an extra data payload.
+///
+/// The destination contract must implement `ICoreReceiveWithData`. Unlike
+/// [`crate::hypercore::HttpClient::transfer_to_evm`], this carries `data` to the recipient and can
+/// target a chain other than HyperEVM.
+///
+/// This is a user-signed EIP-712 action (`HyperliquidTransaction:SendToEvmWithData`).
+///
+/// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#send-to-evm-with-data>
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SendToEvmWithDataAction {
+    /// Signature chain ID.
+    ///
+    /// For arbitrum use [`crate::hypercore::ARBITRUM_MAINNET_CHAIN_ID`] or [`crate::hypercore::ARBITRUM_TESTNET_CHAIN_ID`].
+    pub signature_chain_id: String,
+    /// The chain this action is being executed on.
+    pub hyperliquid_chain: Chain,
+    /// Token identifier, e.g. `"PURR:0xc4bf3f870c0e9465323c0b6ed28096c2"`.
+    pub token: String,
+    /// Amount of the token to send (not in wei).
+    #[serde(with = "rust_decimal::serde::str")]
+    pub amount: Decimal,
+    /// Name of the perp DEX to transfer from. Empty for the spot balance.
+    pub source_dex: String,
+    /// Recipient on the destination chain, in [`Self::address_encoding`] format.
+    pub destination_recipient: String,
+    /// How [`Self::destination_recipient`] is encoded.
+    pub address_encoding: AddressEncoding,
+    /// Destination chain ID.
+    pub destination_chain_id: u32,
+    /// Gas limit for execution on the destination chain.
+    pub gas_limit: u64,
+    /// Data payload passed to the receiving contract. Empty is `0x`.
+    pub data: Bytes,
+    /// Request nonce, must match the outer nonce.
+    pub nonce: u64,
+}
+
+/// Add isolated margin to reach a target leverage.
+///
+/// The alternative to [`UpdateIsolatedMargin`], which moves a fixed USDC amount instead.
+///
+/// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#update-isolated-margin>
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TopUpIsolatedOnlyMargin {
+    /// Asset index.
+    pub asset: u32,
+    /// Target leverage.
+    #[serde(with = "rust_decimal::serde::str")]
+    pub leverage: Decimal,
+}
+
+/// The role being authorized by [`Action::AuthorizeAqav2Role`].
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum Aqav2Role {
+    /// Technical operator role.
+    Technical,
+    /// Treasury operator role.
+    Treasury,
+}
+
+/// Authorize an AQAv2 role for an aligned quote asset.
+///
+/// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#authorize-aqav2-role>
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthorizeAqav2Role {
+    /// Token index, e.g. `0` for USDC.
+    pub token: u32,
+    /// The role to authorize.
+    pub role: Aqav2Role,
+}
+
+/// Validator vote on the risk-free rate for an aligned quote asset.
+///
+/// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#validator-vote-on-risk-free-rate-for-aligned-quote-asset>
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ValidatorL1Stream {
+    /// Annualized risk-free rate, e.g. `0.04` for 4%.
+    #[serde(with = "rust_decimal::serde::str")]
+    pub risk_free_rate: Decimal,
+}
+
 /// HIP-3 backstop liquidator transfer.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -1357,6 +1525,138 @@ pub struct Hip3LiquidatorTransferAction {
     pub ntl: u64,
     /// `true` to deposit, `false` to withdraw.
     pub is_deposit: bool,
+}
+
+/// HIP-4 outcome token action (`userOutcome`).
+///
+/// Outcome markets are fully collateralized binary contracts. The quote token (e.g. USDH)
+/// can be split into one share of each side of an outcome, and matching shares can be merged
+/// back into the quote token. Exactly one of the optional operations should be set; the others
+/// are omitted from the request.
+///
+/// - [`split_outcome`](Self::split_outcome): burn `amount` of the quote token, mint `amount` of
+///   each side (e.g. 1 YES + 1 NO) of `outcome`.
+/// - [`merge_outcome`](Self::merge_outcome): burn `amount` of each side of `outcome`, returning
+///   `amount` of the quote token. `amount = None` merges the maximum available.
+/// - [`merge_question`](Self::merge_question): merge a full set of mutually-exclusive outcomes
+///   within a categorical `question` back into the quote token. `amount = None` merges the max.
+/// - [`negate_outcome`](Self::negate_outcome): within a categorical `question`, convert shares of
+///   one `outcome` into shares of the complementary basket (the "No" of that outcome).
+///
+/// `outcome` and `question` are the integer IDs from the `outcomeMeta` info endpoint
+/// (see [`crate::hypercore::OutcomeInfo::outcome`] and [`crate::hypercore::OutcomeQuestion::question`]).
+///
+/// This is an L1 (agent-signable) action signed via the same msgpack + `Agent` wrapper used by
+/// orders and cancels.
+///
+/// <https://hyperliquid.gitbook.io/hyperliquid-docs/hyperliquid-improvement-proposals-hips/hip-4-outcome-markets>
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UserOutcomeAction {
+    /// Mint one share of each side of an outcome from the quote token.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub split_outcome: Option<SplitOutcome>,
+    /// Burn matching shares of an outcome back into the quote token.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub merge_outcome: Option<MergeOutcome>,
+    /// Merge a full set of outcomes within a question back into the quote token.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub merge_question: Option<MergeQuestion>,
+    /// Convert shares of one outcome into the complementary basket within a question.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub negate_outcome: Option<NegateOutcome>,
+}
+
+impl UserOutcomeAction {
+    /// Build a [`Self`] that splits the quote token into both sides of `outcome`.
+    #[must_use]
+    pub fn split(outcome: u32, amount: Decimal) -> Self {
+        Self {
+            split_outcome: Some(SplitOutcome { outcome, amount }),
+            ..Default::default()
+        }
+    }
+
+    /// Build a [`Self`] that merges both sides of `outcome` back into the quote token.
+    ///
+    /// `amount = None` merges the maximum available.
+    #[must_use]
+    pub fn merge(outcome: u32, amount: Option<Decimal>) -> Self {
+        Self {
+            merge_outcome: Some(MergeOutcome { outcome, amount }),
+            ..Default::default()
+        }
+    }
+
+    /// Build a [`Self`] that merges a full set of outcomes within `question`.
+    ///
+    /// `amount = None` merges the maximum available.
+    #[must_use]
+    pub fn merge_question(question: u32, amount: Option<Decimal>) -> Self {
+        Self {
+            merge_question: Some(MergeQuestion { question, amount }),
+            ..Default::default()
+        }
+    }
+
+    /// Build a [`Self`] that negates `outcome` within `question`.
+    #[must_use]
+    pub fn negate(question: u32, outcome: u32, amount: Decimal) -> Self {
+        Self {
+            negate_outcome: Some(NegateOutcome {
+                question,
+                outcome,
+                amount,
+            }),
+            ..Default::default()
+        }
+    }
+}
+
+/// Split the quote token into one share of each side of an outcome.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SplitOutcome {
+    /// Outcome ID from `outcomeMeta`.
+    pub outcome: u32,
+    /// Amount of the quote token to split.
+    #[serde(with = "rust_decimal::serde::str")]
+    pub amount: Decimal,
+}
+
+/// Merge matching shares of an outcome back into the quote token.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeOutcome {
+    /// Outcome ID from `outcomeMeta`.
+    pub outcome: u32,
+    /// Amount to merge, or `None` for the maximum available.
+    #[serde(default, with = "rust_decimal::serde::str_option")]
+    pub amount: Option<Decimal>,
+}
+
+/// Merge a full set of mutually-exclusive outcomes within a question.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeQuestion {
+    /// Question ID from `outcomeMeta`.
+    pub question: u32,
+    /// Amount to merge, or `None` for the maximum available.
+    #[serde(default, with = "rust_decimal::serde::str_option")]
+    pub amount: Option<Decimal>,
+}
+
+/// Convert shares of one outcome into the complementary basket within a question.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct NegateOutcome {
+    /// Question ID from `outcomeMeta`.
+    pub question: u32,
+    /// Outcome ID to negate from `outcomeMeta`.
+    pub outcome: u32,
+    /// Amount to negate.
+    #[serde(with = "rust_decimal::serde::str")]
+    pub amount: Decimal,
 }
 
 #[cfg(test)]
@@ -1381,6 +1681,253 @@ mod tests {
             address,
             address!("0x5eCb62791B22A3108367c2A2024019Ee7eA88431")
         );
+    }
+
+    #[test]
+    fn send_to_evm_with_data_serialization() {
+        use rust_decimal::dec;
+
+        let action = Action::SendToEvmWithData(SendToEvmWithDataAction {
+            signature_chain_id: "0xa4b1".to_string(),
+            hyperliquid_chain: Chain::Mainnet,
+            token: "USDC".to_string(),
+            amount: dec!(1),
+            source_dex: String::new(),
+            destination_recipient: "0x0d1d9635d0640821d15e323ac8adadfa9c111414".to_string(),
+            address_encoding: AddressEncoding::Hex,
+            destination_chain_id: 42161,
+            gas_limit: 200_000,
+            data: Bytes::default(),
+            nonce: 1690393044548,
+        });
+
+        assert_eq!(
+            serde_json::to_string(&action).unwrap(),
+            r#"{"type":"sendToEvmWithData","signatureChainId":"0xa4b1","hyperliquidChain":"Mainnet","token":"USDC","amount":"1","sourceDex":"","destinationRecipient":"0x0d1d9635d0640821d15e323ac8adadfa9c111414","addressEncoding":"hex","destinationChainId":42161,"gasLimit":200000,"data":"0x","nonce":1690393044548}"#
+        );
+    }
+
+    /// The EIP-712 payload must resolve against `HyperliquidTransaction:SendToEvmWithData`
+    /// with the field order the exchange expects, and `data` must coerce from its hex form.
+    #[test]
+    fn send_to_evm_with_data_prehash() {
+        use rust_decimal::dec;
+
+        let action = Action::SendToEvmWithData(SendToEvmWithDataAction {
+            signature_chain_id: "0xa4b1".to_string(),
+            hyperliquid_chain: Chain::Mainnet,
+            token: "USDC".to_string(),
+            amount: dec!(1),
+            source_dex: String::new(),
+            destination_recipient: "0x0d1d9635d0640821d15e323ac8adadfa9c111414".to_string(),
+            address_encoding: AddressEncoding::Hex,
+            destination_chain_id: 42161,
+            gas_limit: 200_000,
+            data: Bytes::from_static(&[0xde, 0xad, 0xbe, 0xef]),
+            nonce: 1690393044548,
+        });
+
+        let typed_data = match &action {
+            Action::SendToEvmWithData(inner) => {
+                get_typed_data::<solidity::SendToEvmWithData>(inner, Chain::Mainnet, None)
+            }
+            _ => unreachable!(),
+        };
+        assert_eq!(
+            typed_data.primary_type,
+            "HyperliquidTransaction:SendToEvmWithData"
+        );
+        assert_eq!(
+            typed_data.encode_type().unwrap(),
+            "HyperliquidTransaction:SendToEvmWithData(string hyperliquidChain,string token,\
+             string amount,string sourceDex,string destinationRecipient,string addressEncoding,\
+             uint32 destinationChainId,uint64 gasLimit,bytes data,uint64 nonce)"
+        );
+        // Resolving the hash exercises coercion of every field, `data` included.
+        action
+            .prehash(1690393044548, None, None, Chain::Mainnet)
+            .unwrap();
+    }
+
+    #[test]
+    fn l1_action_serialization() {
+        use rust_decimal::dec;
+
+        assert_eq!(
+            serde_json::to_string(&Action::ClaimRewards).unwrap(),
+            r#"{"type":"claimRewards"}"#
+        );
+
+        assert_eq!(
+            serde_json::to_string(&Action::TopUpIsolatedOnlyMargin(TopUpIsolatedOnlyMargin {
+                asset: 4,
+                leverage: dec!(12.5),
+            }))
+            .unwrap(),
+            r#"{"type":"topUpIsolatedOnlyMargin","asset":4,"leverage":"12.5"}"#
+        );
+
+        assert_eq!(
+            serde_json::to_string(&Action::AuthorizeAqav2Role(AuthorizeAqav2Role {
+                token: 0,
+                role: Aqav2Role::Treasury,
+            }))
+            .unwrap(),
+            r#"{"type":"authorizeAqav2Role","token":0,"role":"treasury"}"#
+        );
+
+        assert_eq!(
+            serde_json::to_string(&Action::ValidatorL1Stream(ValidatorL1Stream {
+                risk_free_rate: dec!(0.04),
+            }))
+            .unwrap(),
+            r#"{"type":"validatorL1Stream","riskFreeRate":"0.04"}"#
+        );
+    }
+
+    /// `f` is omitted entirely when false, which keeps the msgpack signing hash unchanged
+    /// for callers that never opt into fast cancels.
+    /// The pre-`fast` wire shape, as it existed before the field was added.
+    #[derive(serde::Serialize)]
+    struct OldBatchCancel {
+        cancels: Vec<crate::hypercore::types::Cancel>,
+    }
+
+    #[derive(serde::Serialize)]
+    #[serde(tag = "type", rename_all = "camelCase")]
+    enum OldAction {
+        Cancel(OldBatchCancel),
+    }
+
+    /// Adding `fast` must not change the msgpack bytes for existing callers, since the
+    /// signature is taken over that encoding.
+    #[test]
+    fn fast_false_is_byte_identical_to_the_old_shape() {
+        let cancels = vec![
+            crate::hypercore::types::Cancel { asset: 1, oid: 42 },
+            crate::hypercore::types::Cancel { asset: 7, oid: 99 },
+        ];
+
+        let old = rmp_serde::to_vec_named(&OldAction::Cancel(OldBatchCancel {
+            cancels: cancels.clone(),
+        }))
+        .unwrap();
+
+        let new = rmp_serde::to_vec_named(&Action::Cancel(BatchCancel {
+            cancels: cancels.clone(),
+            fast: false,
+        }))
+        .unwrap();
+
+        assert_eq!(old, new, "fast:false changed the signing bytes");
+
+        let fast = rmp_serde::to_vec_named(&Action::Cancel(BatchCancel {
+            cancels,
+            fast: true,
+        }))
+        .unwrap();
+        assert_ne!(old, fast, "fast:true should change the signing bytes");
+    }
+
+    #[test]
+    fn cancel_fast_flag_is_omitted_when_false() {
+        let cancels = vec![crate::hypercore::types::Cancel { asset: 1, oid: 42 }];
+
+        let slow = Action::Cancel(BatchCancel {
+            cancels: cancels.clone(),
+            fast: false,
+        });
+        assert_eq!(
+            serde_json::to_string(&slow).unwrap(),
+            r#"{"type":"cancel","cancels":[{"a":1,"o":42}]}"#
+        );
+
+        let fast = Action::Cancel(BatchCancel {
+            cancels,
+            fast: true,
+        });
+        assert_eq!(
+            serde_json::to_string(&fast).unwrap(),
+            r#"{"type":"cancel","cancels":[{"a":1,"o":42}],"f":true}"#
+        );
+    }
+
+    /// `destination` is omitted when absent so existing single-argument reservations sign
+    /// exactly as they did before the field was added.
+    #[test]
+    fn reserve_request_weight_destination_is_optional() {
+        assert_eq!(
+            serde_json::to_string(&Action::ReserveRequestWeight {
+                weight: 10,
+                destination: None,
+            })
+            .unwrap(),
+            r#"{"type":"reserveRequestWeight","weight":10}"#
+        );
+
+        assert_eq!(
+            serde_json::to_string(&Action::ReserveRequestWeight {
+                weight: 10,
+                destination: Some(address!("0x0D1d9635D0640821d15e323ac8AdADfA9c111414")),
+            })
+            .unwrap(),
+            r#"{"type":"reserveRequestWeight","weight":10,"destination":"0x0d1d9635d0640821d15e323ac8adadfa9c111414"}"#
+        );
+    }
+
+    #[test]
+    fn user_outcome_serialization() {
+        use rust_decimal::dec;
+
+        // split: exactly one operation present, others omitted.
+        let action = Action::UserOutcome(UserOutcomeAction::split(20, dec!(10)));
+        let json = serde_json::to_string(&action).unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"userOutcome","splitOutcome":{"outcome":20,"amount":"10"}}"#
+        );
+
+        // merge with explicit amount.
+        let action = Action::UserOutcome(UserOutcomeAction::merge(20, Some(dec!(5))));
+        let json = serde_json::to_string(&action).unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"userOutcome","mergeOutcome":{"outcome":20,"amount":"5"}}"#
+        );
+
+        // merge with no amount => max (serialized as null).
+        let action = Action::UserOutcome(UserOutcomeAction::merge(20, None));
+        let json = serde_json::to_string(&action).unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"userOutcome","mergeOutcome":{"outcome":20,"amount":null}}"#
+        );
+
+        // mergeQuestion.
+        let action = Action::UserOutcome(UserOutcomeAction::merge_question(3, Some(dec!(2))));
+        let json = serde_json::to_string(&action).unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"userOutcome","mergeQuestion":{"question":3,"amount":"2"}}"#
+        );
+
+        // negate.
+        let action = Action::UserOutcome(UserOutcomeAction::negate(3, 20, dec!(1)));
+        let json = serde_json::to_string(&action).unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"userOutcome","negateOutcome":{"question":3,"outcome":20,"amount":"1"}}"#
+        );
+
+        // Round-trip.
+        let deserialized: Action = serde_json::from_str(&json).unwrap();
+        let Action::UserOutcome(a) = deserialized else {
+            panic!("expected UserOutcome");
+        };
+        let neg = a.negate_outcome.unwrap();
+        assert_eq!(neg.question, 3);
+        assert_eq!(neg.outcome, 20);
+        assert_eq!(neg.amount, dec!(1));
     }
 
     #[test]

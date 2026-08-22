@@ -183,6 +183,7 @@ async fn main() -> anyhow::Result<()> {
         coin: "ETH".into(),
         n_sig_figs: None,
         mantissa: None,
+        fast: false,
     });
 
     // Optional: user streams

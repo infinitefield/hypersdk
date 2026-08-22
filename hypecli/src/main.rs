@@ -5,6 +5,7 @@ mod morpho;
 mod multisig;
 mod orders;
 mod orders_list;
+mod outcome;
 mod positions;
 mod prio;
 mod send;
@@ -23,6 +24,7 @@ use morpho::{MorphoApyCmd, MorphoPositionCmd, MorphoVaultApyCmd};
 use multisig::MultiSigCmd;
 use orders::OrderCmd;
 use orders_list::OrdersCmd;
+use outcome::OutcomeCmd;
 use positions::PositionsCmd;
 use prio::PrioCmd;
 use send::SendCmd;
@@ -73,6 +75,9 @@ enum Command {
     /// Order management (place and cancel orders)
     #[command(subcommand)]
     Order(OrderCmd),
+    /// HIP-4 outcome token operations (split, merge, negate)
+    #[command(subcommand)]
+    Outcome(OutcomeCmd),
     /// Subscribe to real-time WebSocket data feeds
     #[command(subcommand)]
     Subscribe(SubscribeCmd),
@@ -107,6 +112,7 @@ impl Command {
             Self::Multisig(cmd) => cmd.run().await,
             Self::ToMultisig(cmd) => cmd.run().await,
             Self::Order(cmd) => cmd.run().await,
+            Self::Outcome(cmd) => cmd.run().await,
             Self::Subscribe(cmd) => cmd.run().await,
             Self::Send(cmd) => cmd.run().await,
             Self::Vault(cmd) => cmd.run().await,
@@ -124,7 +130,8 @@ impl Command {
 /// the signer credentials and target multi-sig wallet.
 #[derive(Args)]
 pub struct SignerArgs {
-    /// Private key for signing (hex format).
+    /// Private key for signing (hex format). Agent (API wallet) keys work
+    /// for L1 actions such as orders and outcome operations.
     #[arg(long)]
     pub private_key: Option<String>,
     /// Foundry keystore.
@@ -190,6 +197,10 @@ Commands that modify state (orders, transfers, etc.) require authentication via 
 
 Note: Ledger and Trezor hardware wallets are supported for multi-sig operations but NOT for
 order placement/cancellation (which require synchronous signing).
+
+Agent (API wallet) private keys are accepted for L1 actions (orders, TWAP, vault transfers,
+outcome operations); the exchange attributes the action to the master account. User-signed
+actions (sends, approvals) still require the master key.
 
 ASSET NAME FORMATS
 ------------------
@@ -351,6 +362,53 @@ Cancel Order (by OID or CLOID):
     --asset <NAME>    Asset name the order belongs to
     --oid <NUMBER>    Exchange-assigned order ID (use this OR --cloid)
     --cloid <HEX>     Client-assigned order ID, 32 hex chars (use this OR --oid)
+
+OUTCOME COMMANDS (HIP-4)
+------------------------
+
+Outcome markets are fully collateralized binary contracts. The quote token can be
+split into one share of each side of an outcome, and matching shares can be merged
+back. Outcome and question IDs come from `hypecli outcome list`.
+
+List Outcomes and Questions:
+  hypecli outcome list
+  hypecli outcome list --chain testnet
+
+Split Quote Token into Outcome Shares:
+  hypecli outcome split \
+    --chain mainnet \
+    --private-key <HEX> \
+    --outcome 12 \
+    --amount 100
+
+Merge Outcome Shares Back into the Quote Token:
+  hypecli outcome merge \
+    --chain mainnet \
+    --private-key <HEX> \
+    --outcome 12 \
+    --amount 100
+
+  Omit --amount to merge the maximum available.
+
+Merge a Question's Full Outcome Set:
+  hypecli outcome merge-question \
+    --chain mainnet \
+    --private-key <HEX> \
+    --question 3
+
+  Merges a full set of mutually-exclusive outcomes within a question back into
+  the quote token. Omit --amount to merge the maximum available.
+
+Negate an Outcome within a Question:
+  hypecli outcome negate \
+    --chain mainnet \
+    --private-key <HEX> \
+    --question 3 \
+    --outcome 12 \
+    --amount 50
+
+  Converts shares of one outcome into the complementary basket (the "No" of
+  that outcome) within a categorical question.
 
 MULTI-SIG COMMANDS
 ------------------

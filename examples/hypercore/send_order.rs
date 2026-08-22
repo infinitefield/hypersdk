@@ -102,6 +102,7 @@ async fn main() -> anyhow::Result<()> {
                                     asset: btc.index,
                                     oid: *oid,
                                 }],
+                                fast: false,
                             },
                             nonce.next(),
                             vault_address,

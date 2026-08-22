@@ -469,6 +469,7 @@ impl TwapCmd {
         if let Some(oid) = state.resting_oid.take() {
             let cancel = BatchCancel {
                 cancels: vec![Cancel { asset, oid }],
+                fast: false,
             };
             let _ = client.cancel(signer, cancel, nonce(), None, None).await;
         }

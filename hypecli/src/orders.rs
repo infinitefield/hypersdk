@@ -330,6 +330,7 @@ impl CancelOrderCmd {
                     asset: asset_index as u32,
                     cloid: cloid_bytes,
                 }],
+                fast: false,
             };
 
             let result = client
@@ -362,6 +363,7 @@ impl CancelOrderCmd {
                     asset: asset_index,
                     oid,
                 }],
+                fast: false,
             };
 
             let result = client.cancel(&signer, batch, nonce, None, None).await;

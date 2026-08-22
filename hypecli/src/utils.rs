@@ -20,7 +20,7 @@ use hypersdk::{Address, hypercore::PrivateKeySigner};
 use iroh::{
     Endpoint, SecretKey,
     address_lookup::{dns::DnsAddressLookup, pkarr::PkarrPublisher},
-    endpoint::presets::Minimal,
+    endpoint::presets::Empty,
 };
 use iroh_mdns_address_lookup::MdnsAddressLookup;
 use iroh_tickets::endpoint::EndpointTicket;
@@ -118,7 +118,7 @@ pub async fn start_gossip(
     key: iroh::SecretKey,
     wait_online: bool,
 ) -> anyhow::Result<(Endpoint, EndpointTicket)> {
-    let endpoint = Endpoint::builder(Minimal)
+    let endpoint = Endpoint::builder(Empty)
         .secret_key(key)
         .relay_mode(iroh::RelayMode::Default)
         .address_lookup(DnsAddressLookup::n0_dns())

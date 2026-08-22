@@ -24,6 +24,7 @@
 //! - [`Bbo`]: Best bid and offer updates
 //! - [`UserEvent`]: Funding, liquidation, and non-user-cancel events
 //! - [`ActiveAssetData`]: User leverage and trade-size limits
+//! - [`FastAssetCtx`]: Low-latency mark/mid price updates
 //! - [`UserTwapSliceFills`]: TWAP slice fills for a user
 //! - [`UserTwapHistory`]: TWAP lifecycle updates for a user
 //!
@@ -70,6 +71,7 @@ use std::{
     collections::HashMap,
     fmt,
     hash::{Hash, Hasher},
+    io::Read,
     time::Duration,
 };
 
@@ -79,6 +81,8 @@ use alloy::{
     signers::k256::ecdsa::RecoveryId,
     sol_types::eip712_domain,
 };
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
+use flate2::read::DeflateDecoder;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error, ser::SerializeMap};
 use serde_with::{DisplayFromStr, serde_as};
@@ -86,6 +90,7 @@ use serde_with::{DisplayFromStr, serde_as};
 use crate::hypercore::{Chain, Cloid, OidOrCloid, SpotToken};
 
 pub mod api;
+pub mod deploy;
 pub(super) mod solidity;
 
 // Re-export important raw types for convenience
@@ -118,6 +123,19 @@ where
     decimal_from_json_value(&value).map_err(serde::de::Error::custom)
 }
 
+fn deserialize_option_decimal_from_any<'de, D>(deserializer: D) -> Result<Option<Decimal>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    match value {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(value) => decimal_from_json_value(&value)
+            .map(Some)
+            .map_err(serde::de::Error::custom),
+    }
+}
+
 fn deserialize_optional_decimal_pair_from_any<'de, D>(
     deserializer: D,
 ) -> Result<Option<[Decimal; 2]>, D::Error>
@@ -137,6 +155,24 @@ where
             ]))
         }
     }
+}
+
+fn deserialize_fast_asset_ctxs<'de, D>(
+    deserializer: D,
+) -> Result<HashMap<String, FastAssetCtx>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let encoded = String::deserialize(deserializer)?;
+    let compressed = BASE64_STANDARD
+        .decode(encoded)
+        .map_err(serde::de::Error::custom)?;
+    let mut decoder = DeflateDecoder::new(compressed.as_slice());
+    let mut json = String::new();
+    decoder
+        .read_to_string(&mut json)
+        .map_err(serde::de::Error::custom)?;
+    serde_json::from_str(&json).map_err(serde::de::Error::custom)
 }
 
 /// Domain for Core mainnet EIP‑712 signing.
@@ -172,7 +208,6 @@ pub const ARBITRUM_TESTNET_EIP712_DOMAIN: Eip712Domain = eip712_domain! {
 pub struct Dex {
     pub(super) name: String,
     pub(super) index: usize,
-    pub(super) deployer_fee_scale: Option<Decimal>,
 }
 
 impl Dex {
@@ -187,11 +222,7 @@ impl Dex {
     ///
     /// A new `Dex` instance.
     pub fn new(name: String, index: usize) -> Dex {
-        Dex {
-            name,
-            index,
-            deployer_fee_scale: None,
-        }
+        Dex { name, index }
     }
 
     /// Returns the DEX name.
@@ -204,12 +235,6 @@ impl Dex {
     #[must_use]
     pub fn index(&self) -> usize {
         self.index
-    }
-
-    /// Returns the deployer fee scale for this DEX.
-    #[must_use]
-    pub fn deployer_fee_scale(&self) -> Option<Decimal> {
-        self.deployer_fee_scale
     }
 }
 
@@ -247,10 +272,61 @@ pub enum Side {
 #[serde(tag = "method")]
 #[serde(rename_all = "camelCase")]
 pub enum Outgoing {
-    Subscribe { subscription: Subscription },
-    Unsubscribe { subscription: Subscription },
+    Subscribe {
+        subscription: Subscription,
+    },
+    Unsubscribe {
+        subscription: Subscription,
+    },
+    /// An info request or a signed action sent over the socket instead of HTTP.
+    ///
+    /// The server replies with [`Incoming::Post`] carrying the same `id`.
+    Post {
+        id: u64,
+        request: PostRequest,
+    },
     Ping,
     Pong,
+}
+
+/// Payload of an [`Outgoing::Post`].
+///
+/// Anything postable over HTTP is postable here, except `explorer` requests.
+///
+/// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/post-requests>
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "payload")]
+#[serde(rename_all = "camelCase")]
+pub enum PostRequest {
+    /// An info request body, the same JSON that `/info` accepts.
+    Info(serde_json::Value),
+    /// A signed action, the same body that `/exchange` accepts.
+    Action(Box<ActionRequest>),
+}
+
+/// Server reply to an [`Outgoing::Post`], delivered as [`Incoming::Post`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PostResponse {
+    /// Echoes the `id` of the originating [`Outgoing::Post`].
+    pub id: u64,
+    /// The result, or an error mirroring the HTTP status that would have been returned.
+    pub response: PostResponsePayload,
+}
+
+/// Result of a posted request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "payload")]
+#[serde(rename_all = "camelCase")]
+pub enum PostResponsePayload {
+    /// Response to a [`PostRequest::Info`].
+    ///
+    /// Note this is wrapped one level deeper than the HTTP response: the value is
+    /// `{"type": <the info request type>, "data": <what /info would have returned>}`.
+    Info(serde_json::Value),
+    /// Response to a [`PostRequest::Action`].
+    Action(Response),
+    /// The request failed. Mirrors the HTTP status code and description.
+    Error(String),
 }
 
 /// WebSocket subscription request.
@@ -267,6 +343,7 @@ pub enum Outgoing {
 /// | [`L2Book`](Self::L2Book) | [`Incoming::L2Book`] | Order book updates |
 /// | [`Candle`](Self::Candle) | [`Incoming::Candle`] | Candlestick (OHLCV) data |
 /// | [`AllMids`](Self::AllMids) | [`Incoming::AllMids`] | Mid prices for all markets |
+/// | [`FastAssetCtxs`](Self::FastAssetCtxs) | [`Incoming::FastAssetCtxs`] | Low-latency mark/mid price updates |
 ///
 /// # User-Specific Subscriptions
 ///
@@ -328,6 +405,11 @@ pub enum Subscription {
         /// Further aggregation; only valid when `n_sig_figs` is `5` (values: 1, 2, or 5).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         mantissa: Option<u8>,
+        /// Opt into Hyperliquid's faster l2Book mode introduced with the websocket push-frequency
+        /// migration: `fast: true` pushes 5 levels roughly every 0.5s, while the default feed
+        /// remains the deeper, slower 20-level snapshot stream.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        fast: bool,
     },
     /// Real-time candlestick updates
     #[display("candle({coin}@{interval})")]
@@ -412,6 +494,9 @@ pub enum Subscription {
     /// Asset contexts across all DEXs
     #[display("allDexsAssetCtxs")]
     AllDexsAssetCtxs,
+    /// Low-latency mark/mid price updates for all assets
+    #[display("fastAssetCtxs")]
+    FastAssetCtxs,
     /// Outcome market metadata updates
     #[display("outcomeMetaUpdates")]
     OutcomeMetaUpdates,
@@ -436,6 +521,7 @@ pub enum Subscription {
 /// - **UserTwapSliceFills**: TWAP slice fill updates for a user
 /// - **UserTwapHistory**: TWAP status history updates for a user
 /// - **ActiveAssetData**: User leverage and limits for a specific perp asset
+/// - **FastAssetCtxs**: Low-latency mark/mid price updates for all assets
 /// - **WebData2**: Frontend-style aggregate user snapshot
 /// - **Ping/Pong**: Heartbeat messages
 ///
@@ -474,6 +560,8 @@ pub enum Subscription {
 pub enum Incoming {
     /// Confirmation of subscription/unsubscription
     SubscriptionResponse(Outgoing),
+    /// Reply to an [`Outgoing::Post`], correlated by its `id`.
+    Post(PostResponse),
     /// Best bid and offer update
     Bbo(Bbo),
     /// Order book snapshot or delta
@@ -576,6 +664,13 @@ pub enum Incoming {
     AllDexsAssetCtxs {
         ctxs: Vec<(String, Vec<PerpAssetCtx>)>,
     },
+    /// Low-latency mark/mid price updates for all assets.
+    ///
+    /// Hyperliquid sends this channel as base64-encoded raw-DEFLATE JSON. The SDK
+    /// decodes it before exposing the map.
+    FastAssetCtxs(
+        #[serde(deserialize_with = "deserialize_fast_asset_ctxs")] HashMap<String, FastAssetCtx>,
+    ),
     /// Outcome market metadata updates
     OutcomeMetaUpdates(serde_json::Value),
     /// Server heartbeat ping
@@ -2216,7 +2311,7 @@ impl AgentSendAsset {
 /// }
 /// # }
 /// ```
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum OrderResponseStatus {
     /// Order accepted (generic)
@@ -2366,6 +2461,10 @@ pub struct BatchOrder {
 pub struct Builder {
     /// Builder address.
     #[serde(rename = "b")]
+    #[serde(
+        serialize_with = "crate::hypercore::utils::serialize_address_as_hex",
+        deserialize_with = "crate::hypercore::utils::deserialize_address_from_hex"
+    )]
     pub builder_address: Address,
     /// Builder fee in tenths of basis points.
     #[serde(rename = "f")]
@@ -2523,6 +2622,11 @@ pub struct Modify {
 #[serde(rename_all = "camelCase")]
 pub struct BatchCancel {
     pub cancels: Vec<Cancel>,
+    /// Fast cancel. Rejected if any cancel refers to a trigger order.
+    ///
+    /// Omitted from the request (and from the signing hash) when `false`.
+    #[serde(rename = "f", default, skip_serializing_if = "std::ops::Not::not")]
+    pub fast: bool,
 }
 
 /// Batch cancel by cloid request.
@@ -2532,6 +2636,11 @@ pub struct BatchCancel {
 #[serde(rename_all = "camelCase")]
 pub struct BatchCancelCloid {
     pub cancels: Vec<CancelByCloid>,
+    /// Fast cancel. Rejected if any cancel refers to a trigger order.
+    ///
+    /// Omitted from the request (and from the signing hash) when `false`.
+    #[serde(rename = "f", default, skip_serializing_if = "std::ops::Not::not")]
+    pub fast: bool,
 }
 
 /// Cancel request for a single order.
@@ -2899,8 +3008,8 @@ pub struct AssetContext {
     #[serde(with = "rust_decimal::serde::str_option", default)]
     pub mid_px: Option<Decimal>,
     /// Premium component of funding
-    #[serde(with = "rust_decimal::serde::str")]
-    pub premium: Decimal,
+    #[serde(with = "rust_decimal::serde::str_option", default)]
+    pub premium: Option<Decimal>,
     /// Previous day closing price
     #[serde(with = "rust_decimal::serde::str")]
     pub prev_day_px: Decimal,
@@ -2954,6 +3063,21 @@ pub struct SpotAssetContext {
     /// 24h notional base volume
     #[serde(with = "rust_decimal::serde::str")]
     pub day_base_vlm: Decimal,
+}
+
+/// Low-latency asset context from the `fastAssetCtxs` WebSocket subscription.
+///
+/// The first message is a snapshot. Later messages contain only assets and
+/// fields that changed.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FastAssetCtx {
+    /// Latest mark price when present in the update.
+    #[serde(default, deserialize_with = "deserialize_option_decimal_from_any")]
+    pub mark_px: Option<Decimal>,
+    /// Latest mid price when present. Hyperliquid may explicitly send `null`.
+    #[serde(default, deserialize_with = "deserialize_option_decimal_from_any")]
+    pub mid_px: Option<Decimal>,
 }
 
 /// User balance.
@@ -3424,8 +3548,8 @@ pub struct VaultDetails {
 /// let now = chrono::Utc::now().timestamp() as u64;
 /// let elapsed = now.saturating_sub(slot.start_time_seconds);
 /// let progress = elapsed as f64 / slot.duration_seconds as f64; // 0.0 to 1.0
-/// let start: Decimal = slot.start_gas;
-/// let end: Decimal = slot.end_gas.unwrap_or(start);
+/// let start = slot.start_gas;
+/// let end = slot.end_gas.unwrap_or(start);
 /// let current_price = start - (start - end) * Decimal::from_f64_retain(progress).unwrap();
 /// ```
 ///
@@ -3868,6 +3992,12 @@ pub(super) enum InfoRequest {
     UserAbstraction {
         user: Address,
     },
+    /// Query HIP-3 DEX abstraction state for a user.
+    UserDexAbstraction {
+        user: Address,
+    },
+    /// All HIP-4 outcome templates.
+    OutcomeTemplates,
     /// Check builder fee approval for a user.
     MaxBuilderFee {
         user: Address,
@@ -3985,10 +4115,6 @@ pub(super) enum InfoRequest {
     },
     /// All borrow/lend reserve states.
     AllBorrowLendReserveStates,
-    /// Aligned quote token info.
-    AlignedQuoteTokenInfo {
-        token: u32,
-    },
     /// TWAP slice fills via info endpoint.
     UserTwapSliceFills {
         user: Address,
@@ -4189,6 +4315,44 @@ mod tests {
     }
 
     #[test]
+    fn test_fast_asset_ctxs_subscription() {
+        let sub = Subscription::FastAssetCtxs;
+
+        let json = serde_json::to_value(&sub).unwrap();
+        assert_eq!(json, serde_json::json!({ "type": "fastAssetCtxs" }));
+        let deserialized: Subscription = serde_json::from_value(json).unwrap();
+        assert_eq!(sub, deserialized);
+    }
+
+    #[test]
+    fn test_l2_book_fast_subscription() {
+        let slow = Subscription::L2Book {
+            coin: "BTC".to_string(),
+            n_sig_figs: None,
+            mantissa: None,
+            fast: false,
+        };
+        assert_eq!(
+            serde_json::to_value(&slow).unwrap(),
+            serde_json::json!({ "type": "l2Book", "coin": "BTC" })
+        );
+
+        let fast = Subscription::L2Book {
+            coin: "BTC".to_string(),
+            n_sig_figs: None,
+            mantissa: None,
+            fast: true,
+        };
+        let json = serde_json::to_value(&fast).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({ "type": "l2Book", "coin": "BTC", "fast": true })
+        );
+        let deserialized: Subscription = serde_json::from_value(json).unwrap();
+        assert_eq!(fast, deserialized);
+    }
+
+    #[test]
     fn test_user_stream_subscription_roundtrip() {
         let user: Address = "0x1234567890abcdef1234567890abcdef12345678"
             .parse()
@@ -4239,6 +4403,38 @@ mod tests {
             }
             _ => assert!(false, "Expected Incoming::Candle"),
         }
+    }
+
+    #[test]
+    fn test_incoming_fast_asset_ctxs_decodes_payload() {
+        let json = r#"{
+            "channel":"fastAssetCtxs",
+            "data":"q1ZyCnFWsqpWyk0syg6oULJSsjQ3NTDQM1Wq1VFyDfFAkTI2MzXQMwJLVVRWWfmFuTiiyBuamOoZKdXWAgA="
+        }"#;
+
+        let incoming: Incoming = serde_json::from_str(json).unwrap();
+        match incoming {
+            Incoming::FastAssetCtxs(ctxs) => {
+                assert_eq!(ctxs.len(), 3);
+                assert_eq!(ctxs["BTC"].mark_px.unwrap().to_string(), "97500.5");
+                assert_eq!(ctxs["ETH"].mark_px.unwrap().to_string(), "3650.25");
+                assert_eq!(ctxs["xyz:NVDA"].mark_px.unwrap().to_string(), "145.2");
+                assert_eq!(ctxs["BTC"].mid_px, None);
+            }
+            _ => assert!(false, "Expected Incoming::FastAssetCtxs"),
+        }
+    }
+
+    #[test]
+    fn test_fast_asset_ctx_accepts_numbers_and_nulls() {
+        let ctx: FastAssetCtx = serde_json::from_value(serde_json::json!({
+            "markPx": 97500.5,
+            "midPx": null
+        }))
+        .unwrap();
+
+        assert_eq!(ctx.mark_px.unwrap().to_string(), "97500.5");
+        assert_eq!(ctx.mid_px, None);
     }
 
     #[test]
@@ -4909,10 +5105,187 @@ mod tests {
         }
     }
 
+    /// Checks that mainnet still answers every info request this SDK can build.
+    ///
+    /// Serialization tests only prove the SDK sends what it intends to; they cannot notice
+    /// the exchange dropping an endpoint. This walks every [`InfoRequest`] variant against
+    /// the live API and fails on an HTTP error. A 422 "Failed to deserialize" is how a
+    /// removed request type shows up, which is exactly how the dead `alignedQuoteTokenInfo`
+    /// was found.
+    ///
+    /// Ignored by default because it hits the network. Run it when the API docs change:
+    ///
+    /// ```bash
+    /// cargo test --lib info_requests_are_still_answered -- --ignored --nocapture
+    /// ```
+    ///
+    /// The deployer-action counterpart is
+    /// `hypercore::types::deploy::tests::deployer_action_shapes_are_still_accepted`.
+    #[tokio::test]
+    #[ignore = "hits mainnet; run manually when auditing the SDK against the API docs"]
+    async fn info_requests_are_still_answered() {
+        use alloy::primitives::address;
+
+        // An arbitrary address with history, so responses are non-trivial.
+        const USER: Address = address!("0xa166e3fa63c25663024b03f2e0da011a00307e40");
+        const HLP: Address = address!("0xdfc24b077bc1425ad1dea75bcb6f8158e10df303");
+
+        let client = crate::hypercore::mainnet();
+        let requests = vec![
+            InfoRequest::Meta { dex: None },
+            InfoRequest::SpotMeta,
+            InfoRequest::PerpDexs,
+            InfoRequest::FrontendOpenOrders {
+                user: USER,
+                dex: None,
+            },
+            InfoRequest::HistoricalOrders { user: USER },
+            InfoRequest::UserFills {
+                user: USER,
+                aggregate_by_time: None,
+            },
+            InfoRequest::UserFillsByTime {
+                user: USER,
+                start_time: 1_750_000_000_000,
+                end_time: None,
+                aggregate_by_time: None,
+            },
+            InfoRequest::OrderStatus {
+                user: USER,
+                oid: either::Either::Left(1),
+            },
+            InfoRequest::SpotClearinghouseState { user: USER },
+            InfoRequest::ClearinghouseState {
+                user: USER,
+                dex: None,
+            },
+            InfoRequest::AllMids { dex: None },
+            InfoRequest::CandleSnapshot {
+                req: CandleSnapshotRequest {
+                    coin: "BTC".to_string(),
+                    interval: CandleInterval::OneHour,
+                    start_time: 1_750_000_000_000,
+                    end_time: 1_750_003_600_000,
+                },
+            },
+            InfoRequest::UserToMultiSigSigners { user: USER },
+            InfoRequest::ExtraAgents { user: USER },
+            InfoRequest::FundingHistory {
+                coin: "BTC".to_string(),
+                start_time: 1_750_000_000_000,
+                end_time: None,
+            },
+            InfoRequest::VaultDetails {
+                vault_address: HLP,
+                user: None,
+            },
+            InfoRequest::UserVaultEquities { user: USER },
+            InfoRequest::UserRole { user: USER },
+            InfoRequest::SubAccounts { user: USER },
+            InfoRequest::UserFees { user: USER },
+            InfoRequest::OutcomeMeta,
+            InfoRequest::OutcomeTemplates,
+            InfoRequest::GossipPriorityAuctionStatus,
+            InfoRequest::UserAbstraction { user: USER },
+            InfoRequest::UserDexAbstraction { user: USER },
+            InfoRequest::MaxBuilderFee {
+                user: USER,
+                builder: USER,
+            },
+            InfoRequest::MetaAndAssetCtxs { dex: None },
+            InfoRequest::SpotMetaAndAssetCtxs,
+            InfoRequest::UserRateLimit { user: USER },
+            InfoRequest::UserFunding {
+                user: USER,
+                start_time: 1_750_000_000_000,
+                end_time: None,
+            },
+            InfoRequest::UserNonFundingLedgerUpdates {
+                user: USER,
+                start_time: 1_750_000_000_000,
+                end_time: None,
+            },
+            InfoRequest::PredictedFundings,
+            InfoRequest::PerpsAtOpenInterestCap { dex: None },
+            InfoRequest::PerpDeployAuctionStatus,
+            InfoRequest::ActiveAssetData {
+                user: USER,
+                coin: "BTC".to_string(),
+            },
+            // A DEX that actually exists; a made-up name returns HTTP 500.
+            InfoRequest::PerpDexLimits {
+                dex: "flx".to_string(),
+            },
+            InfoRequest::PerpDexStatus {
+                dex: "flx".to_string(),
+            },
+            InfoRequest::AllPerpMetas,
+            InfoRequest::PerpAnnotation {
+                coin: "BTC".to_string(),
+            },
+            InfoRequest::PerpCategories,
+            InfoRequest::PerpConciseAnnotations,
+            InfoRequest::SpotDeployState { user: USER },
+            InfoRequest::SpotPairDeployAuctionStatus,
+            InfoRequest::TokenDetails {
+                token_id: "0x6d1e7cde53ba9467b783cb7c530ce054".to_string(),
+            },
+            InfoRequest::SettledOutcome { outcome: 0 },
+            InfoRequest::Portfolio { user: USER },
+            InfoRequest::Referral { user: USER },
+            InfoRequest::ApprovedBuilders { user: USER },
+            InfoRequest::Delegations { user: USER },
+            InfoRequest::DelegatorSummary { user: USER },
+            InfoRequest::DelegatorHistory { user: USER },
+            InfoRequest::DelegatorRewards { user: USER },
+            InfoRequest::BorrowLendUserState { user: USER },
+            InfoRequest::BorrowLendReserveState { token: 0 },
+            InfoRequest::AllBorrowLendReserveStates,
+            InfoRequest::UserTwapSliceFills { user: USER },
+            InfoRequest::L2Book {
+                coin: "BTC".to_string(),
+                n_sig_figs: None,
+                mantissa: None,
+            },
+            InfoRequest::OpenOrders { user: USER },
+        ];
+
+        let mut failures = Vec::new();
+        for req in requests {
+            let label = serde_json::to_value(&req).unwrap()["type"]
+                .as_str()
+                .unwrap()
+                .to_string();
+
+            // Parsed loosely: this asserts the endpoint answers, not that the SDK's
+            // response type still matches.
+            match client
+                .send_info_request::<serde_json::Value>(&label, &req)
+                .await
+            {
+                Ok(_) => println!("{label:32} ok"),
+                Err(err) => {
+                    let err = err.to_string().chars().take(120).collect::<String>();
+                    println!("{label:32} FAILED {err}");
+                    failures.push(format!("{label}: {err}"));
+                }
+            }
+
+            tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+        }
+
+        assert!(
+            failures.is_empty(),
+            "info requests the exchange no longer answers:\n{}",
+            failures.join("\n")
+        );
+    }
+
     mod info_request_serialization {
-        use super::*;
         use alloy::primitives::address;
         use either::Either;
+
+        use super::*;
 
         const USER: Address = address!("0x0000000000000000000000000000000000001234");
         const BUILDER: Address = address!("0x0000000000000000000000000000000000005678");
@@ -5471,14 +5844,6 @@ mod tests {
             assert_json(
                 InfoRequest::AllBorrowLendReserveStates,
                 serde_json::json!({"type": "allBorrowLendReserveStates"}),
-            );
-        }
-
-        #[test]
-        fn aligned_quote_token_info() {
-            assert_json(
-                InfoRequest::AlignedQuoteTokenInfo { token: 5 },
-                serde_json::json!({"type": "alignedQuoteTokenInfo", "token": 5}),
             );
         }
 

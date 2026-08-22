@@ -1,7 +1,7 @@
 ## Package metadata
 [package]
 name = "hypersdk"
-version = "0.2.13"
+version = "0.2.14"
 edition = "2024"
 authors = ["Dario <dario@infinitefieldtrading.com>"]
 license = "MPL-2.0"
@@ -108,6 +108,10 @@ name = "websocket-user-events"
 path = "examples/hypercore/websocket-user-events.rs"
 
 [[example]]
+name = "websocket-post"
+path = "examples/hypercore/websocket_post.rs"
+
+[[example]]
 name = "vault_details"
 path = "examples/hypercore/vault_details.rs"
 
@@ -184,10 +188,12 @@ rustdoc-args = ["--cfg", "docsrs"]
 [dependencies]
 alloy = { version = "2.4", default-features = false, features = ["contract", "eip712", "getrandom", "providers", "reqwest", "reqwest-rustls-tls", "rpc", "rpc-types", "signer-local", "signers", "sol-types"] }
 anyhow = "1"
+base64 = "0.22"
 thiserror = "2"
 const-hex = { version = "1.17", features = ["serde"] }
 derive_more = { version = "2", features = ["display", "is_variant"] }
 either = { version = "1", features = ["serde"] }
+flate2 = "1"
 futures = { version = "0.3", default-features = false, features = ["std"] }
 log = "0.4"
 reqwest = { version = "0.13", features = ["json"] }

@@ -108,6 +108,7 @@
 //!     coin: "ETH".into(),
 //!     n_sig_figs: None,
 //!     mantissa: None,
+//!     fast: false,
 //! });
 //! ws.subscribe(Subscription::Candle {
 //!     coin: "BTC".into(),

@@ -10,6 +10,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - `BasicOrder` trigger-order fields from `frontendOpenOrders`: `is_trigger`, `trigger_px`, `trigger_condition`, `is_position_tpsl`
 - `OrderResponseStatus::WaitingForTrigger` and `WaitingForFill` order response variants
+- Exchange actions `sendToEvmWithData`, `topUpIsolatedOnlyMargin`, `claimRewards`, `authorizeAqav2Role`, and `validatorL1Stream`, with `HttpClient` methods for each
+- Deployer actions in the new `hypercore::types::deploy` module: HIP-1/HIP-2 `spotDeploy`, HIP-3 `perpDeploy`, and HIP-4 outcome deployment and settlement, reachable via `HttpClient::spot_deploy`, `perp_deploy`, and `activate_outcome_deployer`
+- WebSocket post requests: `Connection::post` and `ConnectionHandle::post` send info requests and signed actions over an open socket, with replies arriving as `Incoming::Post`
+- Info requests `userDexAbstraction` and `outcomeTemplates`, via `HttpClient::user_dex_abstraction` and `outcome_templates`
+- `fast` flag on `BatchCancel` and `BatchCancelCloid`, serialized as `f` and omitted when false
+- Optional `destination` on the `reserveRequestWeight` action, to credit reserved capacity to another account
+- New example: `examples/hypercore/websocket_post.rs`
+- Two ignored live-audit tests, `info_requests_are_still_answered` and `deployer_action_shapes_are_still_accepted`, that walk the SDK's surface against the real API
+
+### Removed
+
+- `HttpClient::aligned_quote_token_info` and `InfoRequest::AlignedQuoteTokenInfo`. The endpoint no longer exists: mainnet and testnet both reject it with the same error they give an unknown request type, and it is absent from the docs
+
+### Changed
+
+- **Breaking**: `BatchCancel` and `BatchCancelCloid` gained a `fast` field, so struct literals need `fast: false`
+- **Breaking**: `HttpClient::reserve_request_weight` takes a `destination: Option<Address>` argument
+- `Response`, `OkResponse`, `OrderResponseStatus`, and `ActionRequest` now derive `Clone`; `Response`, `OkResponse`, and `OrderResponseStatus` also derive `Serialize`
 
 ## [v0.2.10]
 
