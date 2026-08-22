@@ -35,5 +35,54 @@ jobs:
       - name: Show toolchain
         run: rustc -Vv && cargo -V
 
+      - name: Check all targets
+        run: cargo check --all-targets
+
       - name: Run tests
         run: cargo test --lib -- --nocapture
+
+  hypecli:
+    name: Build hypecli
+    runs-on: ubuntu-latest
+
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install libusb
+        run: sudo apt-get update && sudo apt-get install -y libusb-1.0-0-dev pkg-config
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            hypecli/target
+          key: ${{ runner.os }}-hypecli-${{ hashFiles('hypecli/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-hypecli-
+
+      - name: Check all targets
+        working-directory: hypecli
+        run: cargo check --all-targets
+
+      # A [patch.crates-io] entry is dropped silently when its version stops
+      # satisfying the dependent's requirement, and the upstream crate is used
+      # instead. That is how hypecli shipped without Trezor typed-data signing:
+      # the fork declared 2.1.0 while alloy 2.4 wanted ^2.4.1.
+      - name: Fail if a patch was dropped
+        working-directory: hypecli
+        run: |
+          if grep -q '^\[\[patch\.unused\]\]' Cargo.lock; then
+            echo "::error::A [patch.crates-io] entry did not apply, so the upstream crate was used instead. Bump the patched crate's version to satisfy the requirement."
+            grep -A3 '^\[\[patch\.unused\]\]' Cargo.lock
+            exit 1
+          fi
+          echo "all [patch.crates-io] entries applied"
