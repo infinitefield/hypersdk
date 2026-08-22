@@ -9,9 +9,9 @@
 //! | `currentGas`        | Meaning                                         |
 //! |---------------------|-------------------------------------------------|
 //! | not null            | Auction RUNNING at displayed price. Bid now.    |
-//! | null                | Settled — winner set, cannot bid this cycle.    |
+//! | null                | Settled, winner set, cannot bid this cycle.    |
 //!
-//! You pay the **live `currentGas` price** at TX mining time — not your `--max`.
+//! You pay the **live `currentGas` price** at TX mining time, not your `--max`.
 //! Any difference between `--max` and the actual cost is refunded automatically.
 //!
 //! ## Usage
@@ -36,15 +36,15 @@ use crate::utils::find_signer_sync;
 pub enum PrioCmd {
     /// Query current Dutch auction prices for all 5 slots.
     ///
-    /// `currentGas != null` → auction RUNNING at that price.
-    /// `currentGas == null` → settled, cannot bid this cycle.
+    /// `currentGas != null` -> auction RUNNING at that price.
+    /// `currentGas == null` -> settled, cannot bid this cycle.
     ///
     /// Prints `started <timestamp>` so you know when the cycle began.
     Status(StatusCmd),
 
     /// Place a signed bid on a gossip priority slot.
     ///
-    /// You pay the **live `currentGas` price** at TX mining time — not your `--max`.
+    /// You pay the **live `currentGas` price** at TX mining time, not your `--max`.
     /// Your `--max` is only a ceiling; any difference is refunded automatically.
     ///
     /// ## Auction states
@@ -52,7 +52,7 @@ pub enum PrioCmd {
     /// | State              | Meaning                                      |
     /// |--------------------|----------------------------------------------|
     /// | `currentGas != null` | Auction RUNNING at displayed price.         |
-    /// | `currentGas == null` | Settled — winner set, cannot bid this cycle. |
+    /// | `currentGas == null` | Settled, winner set, cannot bid this cycle. |
     ///
     /// Example: `hypecli prio bid --keystore if_dev --ip 52.196.250.75 --max 1 --slot 0`
     Bid(BidCmd),
@@ -76,8 +76,8 @@ pub struct StatusCmd {
 impl StatusCmd {
     /// Fetch all 5 slots from `/info`.
     ///
-    /// `currentGas != null` → auction RUNNING at displayed price.
-    /// `currentGas == null` → settled, cannot bid this cycle.
+    /// `currentGas != null` -> auction RUNNING at displayed price.
+    /// `currentGas == null` -> settled, cannot bid this cycle.
     /// Prints `started <timestamp>` at the top so you know when the cycle began.
     pub async fn run(self) -> anyhow::Result<()> {
         let client = HttpClient::new(self.chain);
@@ -139,7 +139,7 @@ impl BidCmd {
     /// - If `currentGas >= --max`: skip (already outbid or at floor).
     /// - Otherwise bid `currentGas + 1` (or `--max` if no leader yet).
     ///
-    /// You pay the live `currentGas` price at TX mining time — not `--max`.
+    /// You pay the live `currentGas` price at TX mining time, not `--max`.
     /// The difference is refunded automatically. Winning amount is burned.
     pub async fn run(self) -> anyhow::Result<()> {
         let signer = find_signer_sync(&self.signer)?;

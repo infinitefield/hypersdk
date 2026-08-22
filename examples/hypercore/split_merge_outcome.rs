@@ -1,12 +1,12 @@
 //! Split and merge outcome shares on a HIP-4 outcome market.
 //!
-//! Demonstrates the full split → wait → merge lifecycle:
-//! 1. **Split** — lock collateral (USDC) to mint YES + NO shares
+//! Demonstrates the full split -> wait -> merge lifecycle:
+//! 1. **Split**, lock collateral (USDC) to mint YES + NO shares
 //! 2. Wait 10 seconds
-//! 3. **Merge** — burn both shares to reclaim the collateral
+//! 3. **Merge**, burn both shares to reclaim the collateral
 //!
 //! Outcome contracts always satisfy `YES_price + NO_price == 1`, so splitting
-//! is a neutral operation — you receive shares worth exactly your collateral.
+//! is a neutral operation, you receive shares worth exactly your collateral.
 //! Merging reverses it.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -57,7 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // --- Step 1: Split ---
-    println!("\n[1/3] Splitting — locking collateral to mint YES + NO shares...");
+    println!("\n[1/3] Splitting, locking collateral to mint YES + NO shares...");
     let resp = client
         .split_outcome(&signer, args.outcome, args.wei, nonce())
         .await?;
@@ -68,7 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::time::sleep(Duration::from_secs(10)).await;
 
     // --- Step 3: Merge ---
-    println!("\n[3/3] Merging — burning YES + NO to reclaim collateral...");
+    println!("\n[3/3] Merging, burning YES + NO to reclaim collateral...");
     let resp = client
         .merge_outcome(&signer, args.outcome, args.wei, nonce())
         .await?;

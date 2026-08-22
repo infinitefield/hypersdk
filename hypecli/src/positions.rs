@@ -135,7 +135,7 @@ impl PositionsCmd {
             let p = &pos.position;
             let side = if p.is_long() { "Long" } else { "Short" };
 
-            println!("  {} — {}", p.coin, side);
+            println!("  {} - {}", p.coin, side);
             println!("  Size:           {}", p.szi);
             println!("  Entry Price:    {}", p.entry_px.map(|e| e.to_string()).unwrap_or_else(|| "N/A".to_string()));
             println!("  Mark Value:     {}", p.position_value);

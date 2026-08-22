@@ -385,9 +385,9 @@ pub enum AssetSpec<'a> {
 ///
 /// # Formats
 ///
-/// - `"BTC"` → `Perp("BTC")` - Perpetual on Hyperliquid DEX
-/// - `"PURR/USDC"` → `Spot("PURR", "USDC")` - Spot market
-/// - `"xyz:BTC"` → `Hip3Perp("xyz", "BTC")` - Perpetual on HIP3 DEX
+/// - `"BTC"` -> `Perp("BTC")` - Perpetual on Hyperliquid DEX
+/// - `"PURR/USDC"` -> `Spot("PURR", "USDC")` - Spot market
+/// - `"xyz:BTC"` -> `Hip3Perp("xyz", "BTC")` - Perpetual on HIP3 DEX
 ///
 /// # Examples
 ///

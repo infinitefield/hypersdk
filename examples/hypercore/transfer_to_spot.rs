@@ -1,6 +1,6 @@
 //! Transfer USDC from the exchange perps wallet to the spot wallet.
 //!
-//! Demonstrates moving USDC between internal exchange balances — specifically from the
+//! Demonstrates moving USDC between internal exchange balances, specifically from the
 //! perpetuals vault back into the spot vault for trading or withdrawal.
 
 use std::time::{SystemTime, UNIX_EPOCH};

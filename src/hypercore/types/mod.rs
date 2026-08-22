@@ -2475,7 +2475,7 @@ pub struct Builder {
 ///
 /// Serializes as a plain string (`"na"`, `"normalTpsl"`, `"positionTpsl"`) or as an
 /// object with a priority rate: `{"p": N}` where N is in units of 1/10_000_000 of
-/// filled notional (max 8 bps → `80_000`). All orders must be IOC.
+/// filled notional (max 8 bps -> `80_000`). All orders must be IOC.
 #[derive(Clone, Debug)]
 pub enum OrderGrouping {
     Na,
@@ -3599,7 +3599,7 @@ impl std::ops::Deref for GossipPriorityAuctionStatus {
     }
 }
 
-// Deserializes [[winners], [slots]] → GossipPriorityAuctionStatus.
+// Deserializes [[winners], [slots]] -> GossipPriorityAuctionStatus.
 #[derive(Deserialize)]
 struct RawGossipPriorityAuctionStatus(
     #[allow(dead_code)] Vec<Option<String>>,
@@ -5060,7 +5060,7 @@ mod tests {
     #[test]
     fn test_incoming_user_channel_fills() {
         // Hyperliquid sends fill notifications on channel "user" (not "userEvents").
-        // The payload matches UserEvent::Fills — just a {"fills":[...]} object.
+        // The payload matches UserEvent::Fills, just a {"fills":[...]} object.
         // This reproduces the real wire-format messages from production:
         //   {"channel":"user","data":{"fills":[{"coin":"BTC",...}]}}
         let json = r#"{

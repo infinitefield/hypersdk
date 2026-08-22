@@ -7,9 +7,9 @@
 //!
 //! The connection yields [`Event`] which wraps connection state and data messages:
 //!
-//! - [`Event::Connected`] — Connection established (including after reconnection)
-//! - [`Event::Disconnected`] — Connection lost (will auto-reconnect)
-//! - [`Event::Message`] — Contains an [`Incoming`] data message
+//! - [`Event::Connected`]: Connection established (including after reconnection)
+//! - [`Event::Disconnected`]: Connection lost (will auto-reconnect)
+//! - [`Event::Message`]: Contains an [`Incoming`] data message
 //!
 //! # Examples
 //!
@@ -548,7 +548,7 @@ impl Connection {
     ///
     /// This is useful when you want to drive the stream in one task and
     /// manage subscriptions from another. Both returned halves participate
-    /// in graceful shutdown — the background task exits when all handles
+    /// in graceful shutdown, the background task exits when all handles
     /// and streams are dropped.
     pub fn split(self) -> (ConnectionHandle, ConnectionStream) {
         (
@@ -775,7 +775,7 @@ async fn connection(
                     }
                 }
                 _ = shutdown.cancelled() => {
-                    // Shutdown signal received — exit gracefully
+                    // Shutdown signal received, exit gracefully
                     log::debug!("Shutdown signal received, closing WebSocket connection");
                     break;
                 }

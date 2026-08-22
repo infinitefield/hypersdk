@@ -198,7 +198,7 @@ pub struct NonceHandler {
     nonce: AtomicU64,
 }
 
-/// An outcome order book — one tradable side of an outcome.
+/// An outcome order book, one tradable side of an outcome.
 ///
 /// Each [`OutcomeInfo`] produces N order books (one per [`OutcomeSideSpec`]).
 /// The market field stores the Hyperliquid asset index directly:
@@ -637,7 +637,7 @@ pub fn testnet_ws() -> WebSocket {
 /// ## Spot Markets
 /// - **Max decimals**: 8 (max_decimals = 8 - sz_decimals)
 /// - Higher `max_decimals` allows finer tick sizes for low-priced assets
-/// - Example: PURR/USDC with sz_decimals=0 → max_decimals=8 → tick can be as fine as 10^-8
+/// - Example: PURR/USDC with sz_decimals=0 -> max_decimals=8 -> tick can be as fine as 10^-8
 ///
 /// ## Perpetual Markets
 /// - **Max decimals**: 6 (max_decimals = 6 - sz_decimals)
@@ -648,14 +648,14 @@ pub fn testnet_ws() -> WebSocket {
 ///
 /// ```text
 /// BTC perpetual (sz_decimals=5, max_decimals=1):
-/// - Price 93231 (5 digits): decimals = 5-5 = 0, clamp(0,0,1) = 0 → tick = 10^0 = 1
+/// - Price 93231 (5 digits): decimals = 5-5 = 0, clamp(0,0,1) = 0 -> tick = 10^0 = 1
 /// - Price 93231.23 rounds to 93231
 ///
 /// SOL perpetual (sz_decimals=2, max_decimals=4):
-/// - Price 137 (3 digits): decimals = 5-3 = 2, clamp(2,0,4) = 2 → tick = 10^-2 = 0.01
+/// - Price 137 (3 digits): decimals = 5-3 = 2, clamp(2,0,4) = 2 -> tick = 10^-2 = 0.01
 /// - Price 137.23025 rounds to 137.23
 ///
-/// - Price 99 (2 digits): decimals = 5-2 = 3, clamp(3,0,4) = 3 → tick = 10^-3 = 0.001
+/// - Price 99 (2 digits): decimals = 5-2 = 3, clamp(3,0,4) = 3 -> tick = 10^-3 = 0.001
 /// - Price 99.98241 rounds to 99.982
 /// ```
 ///
@@ -759,10 +759,10 @@ impl PriceTick {
     ///
     /// | Side | Conservative | Direction | Rationale |
     /// |------|-------------|-----------|-----------|
-    /// | Ask (Sell) | `true` | **UP** | Higher sell price → safer for seller, less likely to fill |
-    /// | Ask (Sell) | `false` | **DOWN** | Lower sell price → more competitive, more likely to fill |
-    /// | Bid (Buy) | `true` | **DOWN** | Lower buy price → safer for buyer, less likely to fill |
-    /// | Bid (Buy) | `false` | **UP** | Higher buy price → more competitive, more likely to fill |
+    /// | Ask (Sell) | `true` | **UP** | Higher sell price -> safer for seller, less likely to fill |
+    /// | Ask (Sell) | `false` | **DOWN** | Lower sell price -> more competitive, more likely to fill |
+    /// | Bid (Buy) | `true` | **DOWN** | Lower buy price -> safer for buyer, less likely to fill |
+    /// | Bid (Buy) | `false` | **UP** | Higher buy price -> more competitive, more likely to fill |
     ///
     /// # Use Cases
     ///
@@ -1867,9 +1867,9 @@ where
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum MarginMode {
-    /// Strict isolated margin — position can only use its allocated margin.
+    /// Strict isolated margin: position can only use its allocated margin.
     StrictIsolated,
-    /// No cross-margin — position uses isolated margin but with different risk parameters.
+    /// No cross-margin: position uses isolated margin but with different risk parameters.
     NoCross,
 }
 
@@ -2183,7 +2183,7 @@ mod tests {
     async fn test_http_outcome_meta_mainnet() {
         let client = hypercore::mainnet();
         let meta = client.outcome_meta().await.unwrap();
-        // Mainnet may have empty outcomes — just verify the call succeeds
+        // Mainnet may have empty outcomes, just verify the call succeeds
         let _ = meta.outcomes.len();
     }
 

@@ -385,10 +385,10 @@ impl Client {
 
     /// Send an info request to `/info` and deserialize the JSON response.
     ///
-    /// Private helper that encapsulates the repeated HTTP send → check status →
+    /// Private helper that encapsulates the repeated HTTP send -> check status ->
     /// parse JSON workflow used across all unsigned info endpoint methods.
     ///
-    /// The `label` parameter is included in error messages for debugging — it should
+    /// The `label` parameter is included in error messages for debugging, it should
     /// identify the calling endpoint (e.g., `"open_orders"`, `"user_balances"`).
     pub(crate) async fn send_info_request<R>(
         &self,
@@ -1001,7 +1001,7 @@ impl Client {
     /// per slot). There are 5 slots (0–4), each running a Dutch auction on a
     /// synchronized 3-minute schedule.
     ///
-    /// `max_gas` is in **wei of HYPE** — 1 HYPE = 1e18 wei. Example: `50 HYPE`
+    /// `max_gas` is in **wei of HYPE**, 1 HYPE = 1e18 wei. Example: `50 HYPE`
     /// = `U256::from(50u128) * U256::from(1e18)`.
     ///
     /// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/priority-fees>
@@ -1041,7 +1041,7 @@ impl Client {
     /// Schedules a cancellation of all open orders at a specified time.
     ///
     /// This is a signed action that tells the exchange to cancel all of the user's
-    /// open orders at the given timestamp. Useful for risk management — for example,
+    /// open orders at the given timestamp. Useful for risk management, for example,
     /// scheduling an end-of-day order sweep.
     ///
     /// # Parameters
@@ -1139,7 +1139,7 @@ impl Client {
     /// # Parameters
     ///
     /// - `signer`: Private key signer for EIP-712 signatures
-    /// - `market`: Market to trade on — pass a [`PerpMarket`], [`SpotMarket`], or [`OutcomeMarket`]
+    /// - `market`: Market to trade on, pass a [`PerpMarket`], [`SpotMarket`], or [`OutcomeMarket`]
     /// - `is_buy`: `true` for buy, `false` for sell
     /// - `limit_px`: Worst acceptable execution price. Round it to the market tick before calling.
     /// - `size`: Position size in base asset units
@@ -1501,7 +1501,7 @@ impl Client {
     /// # Parameters
     ///
     /// - `signer`: The wallet signing the transfer
-    /// - `token`: Must be USDC — other tokens return an error
+    /// - `token`: Must be USDC, other tokens return an error
     /// - `amount`: Amount to transfer
     /// - `nonce`: Unique nonce for this request
     pub async fn transfer_to_spot<S: Signer + SignerSync>(
@@ -1542,7 +1542,7 @@ impl Client {
     /// # Parameters
     ///
     /// - `signer`: The wallet signing the transfer
-    /// - `token`: Must be USDC — other tokens return an error
+    /// - `token`: Must be USDC, other tokens return an error
     /// - `amount`: Amount to transfer
     /// - `nonce`: Unique nonce for this request
     pub async fn transfer_to_perps<S: Signer + SignerSync>(
@@ -1923,7 +1923,7 @@ impl Client {
     /// - [`AbstractionMode::UnifiedAccount`] (`"u"`): Unified per-asset balance
     /// - [`AbstractionMode::PortfolioMargin`] (`"p"`): Portfolio margin (pre-alpha)
     ///
-    /// This uses RMP-based signing (Agent wrapper) — suitable for API wallets / agents.
+    /// This uses RMP-based signing (Agent wrapper), suitable for API wallets / agents.
     ///
     /// # Parameters
     ///

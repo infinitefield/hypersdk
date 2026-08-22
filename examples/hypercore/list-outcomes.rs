@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("{}", "-".repeat(90));
         for q in &meta.questions {
             println!(
-                "  Question {} — outcomes: {:?}, fallback: {:?}",
+                "  Question {} - outcomes: {:?}, fallback: {:?}",
                 q.question, q.named_outcomes, q.fallback_outcome
             );
         }
