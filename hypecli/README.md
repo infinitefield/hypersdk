@@ -210,18 +210,18 @@ Hyperliquid's gossip network uses 5 Dutch auction slots (indices 0–4) for read
 | `currentGas`       | Meaning                                              |
 |--------------------|------------------------------------------------------|
 | not null           | Auction RUNNING at displayed price. You can bid now. |
-| null               | Settled — winner set or no bids placed this cycle.   |
+| null               | Settled, winner set or no bids placed this cycle.   |
 
-When you bid, you pay the **live `currentGas` price** at TX mining time — not your ceiling (`--max`). The difference is refunded automatically. Winning bid amounts are burned from your spot HYPE balance.
+When you bid, you pay the **live `currentGas` price** at TX mining time, not your ceiling (`--max`). The difference is refunded automatically. Winning bid amounts are burned from your spot HYPE balance.
 
 Lower slot index = higher priority:
 
 ```
-Slot 0 → ~50ms faster than no-bid nodes
-Slot 1 → ~40ms faster
-Slot 2 → ~30ms faster
-Slot 3 → ~20ms faster
-Slot 4 → ~10ms faster
+Slot 0 -> ~50ms faster than no-bid nodes
+Slot 1 -> ~40ms faster
+Slot 2 -> ~30ms faster
+Slot 3 -> ~20ms faster
+Slot 4 -> ~10ms faster
 ```
 
 **Check current prices:**

@@ -9,10 +9,10 @@ Hyperliquid is a high-performance L1 with a fully on-chain order book. Trade per
 
 Key features:
 
-- **On-chain order book** — All orders are on-chain, not just settlements
-- **Low fees** — 0.01% maker / 0.035% taker for perpetuals
-- **50+ perpetual markets** — BTC, ETH, SOL, and many more
-- **Spot markets** — Trade tokens directly
+- **On-chain order book**: All orders are on-chain, not just settlements
+- **Low fees**: 0.01% maker / 0.035% taker for perpetuals
+- **50+ perpetual markets**: BTC, ETH, SOL, and many more
+- **Spot markets**: Trade tokens directly
 
 ## Installation
 
@@ -103,14 +103,14 @@ hypecli order limit \
 
 **Time-in-force options:**
 
-- `gtc` (default) — Good Till Cancel, remains until filled or canceled
-- `alo` — Add Liquidity Only, rejected if it would take liquidity (maker-only)
-- `ioc` — Immediate or Cancel, fill immediately or cancel unfilled portion
+- `gtc` (default): Good Till Cancel, remains until filled or canceled
+- `alo`: Add Liquidity Only, rejected if it would take liquidity (maker-only)
+- `ioc`: Immediate or Cancel, fill immediately or cancel unfilled portion
 
 **Additional flags:**
 
-- `--reduce-only` — Only reduce an existing position, won't open new positions
-- `--cloid <HEX>` — Custom client order ID (16 bytes hex) for tracking
+- `--reduce-only`: Only reduce an existing position, won't open new positions
+- `--cloid <HEX>`: Custom client order ID (16 bytes hex) for tracking
 
 ### Market Orders
 
@@ -182,9 +182,9 @@ hypecli balance 0xYourAddress --format json
 
 This shows:
 
-- **Spot balances** — Token holdings
-- **Perp account** — Account value, margin used, withdrawable funds
-- **Positions** — Open perpetual positions with entry price, size, unrealized PnL
+- **Spot balances**: Token holdings
+- **Perp account**: Account value, margin used, withdrawable funds
+- **Positions**: Open perpetual positions with entry price, size, unrealized PnL
 
 ## Example Workflows
 

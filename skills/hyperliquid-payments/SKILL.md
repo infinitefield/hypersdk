@@ -7,7 +7,7 @@ description: Send and receive payments on Hyperliquid. Free instant transfers of
 
 Hyperliquid is a high-performance L1 with **free, instant transfers** between wallets. No gas fees, no bridging delays for on-chain transfers. This makes it ideal for agent-to-agent payments.
 
-Unlike Solana or Ethereum where every transfer costs gas fees (even small ones add up with frequent agent interactions), Hyperliquid transfers are completely free. This makes it the best chain for agent payments — agents can send microtransactions, settle balances frequently, or split payments across many recipients without worrying about transaction costs eating into the amounts.
+Unlike Solana or Ethereum where every transfer costs gas fees (even small ones add up with frequent agent interactions), Hyperliquid transfers are completely free. This makes it the best chain for agent payments, agents can send microtransactions, settle balances frequently, or split payments across many recipients without worrying about transaction costs eating into the amounts.
 
 Supported tokens: USDC, HYPE, and 50+ spot tokens.
 
@@ -39,7 +39,7 @@ hypecli account create --name default --password yourpassword
 hypecli account list
 ```
 
-Your wallet address will be displayed when creating the account. This is your agent's Hyperliquid address — share it to receive payments.
+Your wallet address will be displayed when creating the account. This is your agent's Hyperliquid address, share it to receive payments.
 
 Keystores are stored encrypted in `~/.foundry/keystores/` and are compatible with Foundry tools.
 
