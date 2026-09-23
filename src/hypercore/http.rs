@@ -77,10 +77,10 @@ use crate::hypercore::{
         BatchCancelCloid, BatchModify, BatchOrder, ClearinghouseState, Delegation,
         DelegatorSummary, DeployAuctionStatus, ExchangeStatus, Fill, FundingRate, InfoRequest,
         L2Book, LegalCheck, MarginTable, OrderGrouping, OrderRequest, OrderResponseStatus,
-        OrderTypePlacement, OrderUpdate, PerpDexLimits, PerpDexStatus, PreTransferCheck,
-        PredictedFundingVenue, ScheduleCancel, SendAsset, SendToken, SpotSend, SubAccount,
-        TimeInForce, TokenDetails, Trade, TwapSliceFill, UsdSend, UsdcRouting, UserBalance,
-        UserFees, UserFundingEntry, UserRateLimit, UserRole, UserSetAbstractionAction,
+        OrderTypePlacement, OrderUpdate, PerpDexDetails, PerpDexLimits, PerpDexStatus,
+        PreTransferCheck, PredictedFundingVenue, ScheduleCancel, SendAsset, SendToken, SpotSend,
+        SubAccount, TimeInForce, TokenDetails, Trade, TwapSliceFill, UsdSend, UsdcRouting,
+        UserBalance, UserFees, UserFundingEntry, UserRateLimit, UserRole, UserSetAbstractionAction,
         UserVaultEquity, VaultDetails,
     },
 };
@@ -2253,6 +2253,31 @@ impl Client {
     pub async fn perp_dex_status(&self, dex: String) -> Result<PerpDexStatus> {
         let req = InfoRequest::PerpDexStatus { dex };
         self.send_info_request("perp_dex_status", &req).await
+    }
+
+    /// Returns the configuration of every HIP-3 DEX: deployer, oracle updater, fee recipient,
+    /// sub-deployer permissions, OI caps, and funding settings.
+    ///
+    /// Same `perpDexs` request as [`Self::perp_dexes`], which keeps only names and indices.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use hypersdk::hypercore;
+    ///
+    /// # async fn example() -> anyhow::Result<()> {
+    /// let client = hypercore::mainnet();
+    /// for dex in client.perp_dex_details().await? {
+    ///     println!("{} oracle signers: {:?}", dex.name, dex.sub_deployers_for("setOracle"));
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn perp_dex_details(&self) -> Result<Vec<PerpDexDetails>> {
+        let dexes = self
+            .send_info_request("perp_dex_details", &InfoRequest::PerpDexs)
+            .await?;
+        Ok(PerpDexDetails::from_response(dexes))
     }
 
     /// Returns all DEXs' meta + asset contexts.

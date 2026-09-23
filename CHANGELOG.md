@@ -28,6 +28,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `Incoming::Error`, carrying the `error` channel. A rejected subscription used to be logged and dropped, so a removed subscription looked like a feed that never sent anything
 - Live-audit tests `subscriptions_are_still_accepted` and `undocumented_action_shapes_are_accepted`, covering the two surfaces the existing audits missed
 - `PredictedFundingVenue::funding_interval_hours`, the funding interval the exchange reports per venue. Optional: 19 of 627 venue payloads on mainnet omit it
+- `HttpClient::perp_dex_details`, returning each HIP-3 DEX as `PerpDexDetails`: deployer, oracle updater, fee recipient, sub-deployer permissions (as `SubDeployerPermission`, which also covers the `{"hip3Star": ...}` proxy-operation grants of testnet-only HIP-3\* venues), OI caps, and funding multipliers, interest rates, and clamps. `perp_dexes` drops everything but the name and index
+- New example: `examples/hypercore/hip3-dex-details.rs`
 
 ### Removed
 
