@@ -3433,22 +3433,21 @@ pub struct PerpDexDetails {
     pub oracle_updater: Option<Address>,
     /// Address the deployer's share of fees is paid to, if one is set.
     pub fee_recipient: Option<Address>,
-    /// `(coin, notional OI cap)` pairs.
+    /// Notional OI cap per coin.
     #[serde(default)]
-    pub asset_to_streaming_oi_cap: Vec<(String, Decimal)>,
-    /// `(permission, addresses allowed to use it)` pairs, e.g. `("setOracle", [..])`.
-    /// See [`Self::sub_deployers_for`].
+    pub asset_to_streaming_oi_cap: Vec<AssetSetting>,
+    /// Permissions delegated to sub-deployers. See [`Self::sub_deployers_for`].
     #[serde(default)]
-    pub sub_deployers: Vec<(SubDeployerPermission, Vec<Address>)>,
-    /// `(coin, funding multiplier)` pairs.
+    pub sub_deployers: Vec<SubDeployerGrant>,
+    /// Funding multiplier per coin.
     #[serde(default)]
-    pub asset_to_funding_multiplier: Vec<(String, Decimal)>,
-    /// `(coin, funding interest rate)` pairs. Coins without an entry use the default.
+    pub asset_to_funding_multiplier: Vec<AssetSetting>,
+    /// Funding interest rate per coin. Coins without an entry use the default.
     #[serde(default)]
-    pub asset_to_funding_interest_rate: Vec<(String, Decimal)>,
-    /// `(coin, funding clamp)` pairs. Coins without an entry use the default.
+    pub asset_to_funding_interest_rate: Vec<AssetSetting>,
+    /// Funding clamp per coin. Coins without an entry use the default.
     #[serde(default)]
-    pub asset_to_funding_clamp: Vec<(String, Decimal)>,
+    pub asset_to_funding_clamp: Vec<AssetSetting>,
 }
 
 impl PerpDexDetails {
@@ -3475,28 +3474,83 @@ impl PerpDexDetails {
     pub fn sub_deployers_for(&self, variant: &str) -> &[Address] {
         self.sub_deployers
             .iter()
-            .find(|(permission, _)| {
-                matches!(permission, SubDeployerPermission::PerpDeploy(action) if action == variant)
+            .find(|grant| {
+                matches!(&grant.permission, SubDeployerPermission::PerpDeploy(action) if action == variant)
             })
-            .map_or(&[], |(_, users)| users.as_slice())
+            .map_or(&[], |grant| grant.users.as_slice())
+    }
+}
+
+/// One per-coin setting of a HIP-3 DEX, such as an OI cap or a funding multiplier.
+///
+/// Sent by the API as a `[coin, value]` array.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(from = "(String, Decimal)")]
+pub struct AssetSetting {
+    /// Coin name, e.g. `xyz:SP500`.
+    pub coin: String,
+    /// The setting's value for this coin.
+    pub value: Decimal,
+}
+
+impl From<(String, Decimal)> for AssetSetting {
+    fn from((coin, value): (String, Decimal)) -> Self {
+        Self { coin, value }
+    }
+}
+
+/// A deployer permission and the sub-deployers allowed to use it.
+///
+/// Sent by the API as a `[permission, [address, ..]]` array.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(from = "(SubDeployerPermission, Vec<Address>)")]
+pub struct SubDeployerGrant {
+    /// The delegated permission.
+    pub permission: SubDeployerPermission,
+    /// Addresses other than the deployer allowed to use it.
+    pub users: Vec<Address>,
+}
+
+impl From<(SubDeployerPermission, Vec<Address>)> for SubDeployerGrant {
+    fn from((permission, users): (SubDeployerPermission, Vec<Address>)) -> Self {
+        Self { permission, users }
     }
 }
 
 /// A deployer permission a HIP-3 DEX has delegated to sub-deployers.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(untagged)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SubDeployerPermission {
     /// A `perpDeploy` action variant, e.g. `"setOracle"` or `"haltTrading"`.
     PerpDeploy(String),
-    /// A HIP-3\* proxy-operation grant, sent as `{"hip3Star": "<operation>"}`, e.g. `"order"`
-    /// or `"modifyApproval"`. HIP-3\* venues are testnet-only.
+    /// A HIP-3\* proxy-operation grant, sent as exactly `{"hip3Star": "<operation>"}`, e.g.
+    /// `"order"` or `"modifyApproval"`. HIP-3\* venues are testnet-only.
     Hip3Star {
-        /// The permitted action.
-        #[serde(rename = "hip3Star")]
+        /// The permitted operation.
         action: String,
     },
-    /// Any other shape, kept as raw JSON so a new permission type does not break parsing.
+    /// Any other shape, including a `hip3Star` object with extra fields, kept as raw JSON so
+    /// nothing is dropped.
     Other(serde_json::Value),
+}
+
+impl<'de> Deserialize<'de> for SubDeployerPermission {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        // Only the exact `{"hip3Star": "<operation>"}` shape is a HIP-3* grant. An object with
+        // any other key, or with more than one, goes to `Other` so no field is lost.
+        let hip3_star = match &value {
+            serde_json::Value::Object(map) if map.len() == 1 => map
+                .get("hip3Star")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+            _ => None,
+        };
+        Ok(match (value, hip3_star) {
+            (serde_json::Value::String(action), _) => Self::PerpDeploy(action),
+            (_, Some(action)) => Self::Hip3Star { action },
+            (value, None) => Self::Other(value),
+        })
+    }
 }
 
 /// Token details from `tokenDetails` info request.
@@ -5306,13 +5360,13 @@ mod tests {
         // HIP-3* venues on testnet grant proxy operations as objects. They parse, and never
         // match a perpDeploy action name.
         assert_eq!(
-            xyz.sub_deployers[2].0,
+            xyz.sub_deployers[2].permission,
             SubDeployerPermission::Hip3Star {
                 action: "order".into()
             }
         );
         assert!(matches!(
-            xyz.sub_deployers[3].0,
+            xyz.sub_deployers[3].permission,
             SubDeployerPermission::Other(_)
         ));
         assert!(xyz.sub_deployers_for("order").is_empty());
@@ -5322,12 +5376,48 @@ mod tests {
 
         assert_eq!(
             xyz.asset_to_streaming_oi_cap[1],
-            ("xyz:CL".to_string(), Decimal::from(1_000_000_000))
+            AssetSetting {
+                coin: "xyz:CL".into(),
+                value: Decimal::from(1_000_000_000),
+            }
         );
         assert_eq!(
             abcd.asset_to_funding_clamp,
-            [("abcd:USA500".to_string(), Decimal::new(1, 2))]
+            [AssetSetting {
+                coin: "abcd:USA500".into(),
+                value: Decimal::new(1, 2),
+            }]
         );
+    }
+
+    #[test]
+    fn sub_deployer_permission_keeps_unknown_shapes_intact() {
+        let parse = |json: &str| serde_json::from_str::<SubDeployerPermission>(json).unwrap();
+
+        assert_eq!(
+            parse(r#""setOracle""#),
+            SubDeployerPermission::PerpDeploy("setOracle".into())
+        );
+        assert_eq!(
+            parse(r#"{"hip3Star":"order"}"#),
+            SubDeployerPermission::Hip3Star {
+                action: "order".into()
+            }
+        );
+
+        // Anything but the exact known shape is preserved as-is instead of losing fields.
+        for json in [
+            r#"{"hip3Star":"order","scope":"future"}"#,
+            r#"{"hip3Star":5}"#,
+            r#"{"somethingNew":"order"}"#,
+            r#"["setOracle"]"#,
+        ] {
+            assert_eq!(
+                parse(json),
+                SubDeployerPermission::Other(serde_json::from_str(json).unwrap()),
+                "{json}"
+            );
+        }
     }
 
     #[test]

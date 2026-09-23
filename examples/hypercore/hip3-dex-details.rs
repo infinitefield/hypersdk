@@ -29,13 +29,13 @@ async fn main() -> anyhow::Result<()> {
             dex.asset_to_streaming_oi_cap.len()
         );
 
-        for (permission, users) in &dex.sub_deployers {
-            let permission = match permission {
+        for grant in &dex.sub_deployers {
+            let permission = match &grant.permission {
                 SubDeployerPermission::PerpDeploy(action) => action.clone(),
                 SubDeployerPermission::Hip3Star { action } => format!("hip3Star:{action}"),
                 SubDeployerPermission::Other(raw) => raw.to_string(),
             };
-            let users: Vec<String> = users.iter().map(ToString::to_string).collect();
+            let users: Vec<String> = grant.users.iter().map(ToString::to_string).collect();
             println!("  {permission:<26} {}", users.join(", "));
         }
     }
