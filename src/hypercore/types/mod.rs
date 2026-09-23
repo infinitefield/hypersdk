@@ -3411,6 +3411,148 @@ pub struct PerpDexStatus {
     pub total_net_deposit: Decimal,
 }
 
+/// Configuration of one HIP-3 perp DEX, as returned by the `perpDexs` info request.
+///
+/// [`Dex`] keeps only the name and index. This keeps the rest of the payload: who deployed
+/// the DEX, which addresses may sign each deployer action, where fees go, and the per-asset
+/// OI caps and funding settings. Deployer and monitoring tools need all of it.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PerpDexDetails {
+    /// Position in the `perpDexs` response, i.e. [`Dex::index`]. HIP-3 asset IDs are
+    /// derived from it, so it is kept even though the payload does not carry it.
+    #[serde(skip)]
+    pub index: usize,
+    /// Short name used as the coin prefix, e.g. `xyz` in `xyz:SP500`.
+    pub name: String,
+    /// Display name.
+    pub full_name: String,
+    /// Address that staked for and deployed the DEX.
+    pub deployer: Address,
+    /// Address allowed to push oracle prices besides the deployer, if one is set.
+    pub oracle_updater: Option<Address>,
+    /// Address the deployer's share of fees is paid to, if one is set.
+    pub fee_recipient: Option<Address>,
+    /// Notional OI cap per coin.
+    #[serde(default)]
+    pub asset_to_streaming_oi_cap: Vec<AssetSetting>,
+    /// Permissions delegated to sub-deployers. See [`Self::sub_deployers_for`].
+    #[serde(default)]
+    pub sub_deployers: Vec<SubDeployerGrant>,
+    /// Funding multiplier per coin.
+    #[serde(default)]
+    pub asset_to_funding_multiplier: Vec<AssetSetting>,
+    /// Funding interest rate per coin. Coins without an entry use the default.
+    #[serde(default)]
+    pub asset_to_funding_interest_rate: Vec<AssetSetting>,
+    /// Funding clamp per coin. Coins without an entry use the default.
+    #[serde(default)]
+    pub asset_to_funding_clamp: Vec<AssetSetting>,
+}
+
+impl PerpDexDetails {
+    /// Pairs each entry of a raw `perpDexs` response with its index. The first entry is the
+    /// validator-operated DEX, which the API returns as `null`.
+    pub(crate) fn from_response(dexes: Vec<Option<Self>>) -> Vec<Self> {
+        dexes
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, dex)| dex.map(|dex| Self { index, ..dex }))
+            .collect()
+    }
+
+    /// The [`Dex`] handle for this DEX, for use with requests such as
+    /// [`crate::hypercore::HttpClient::perps_from`].
+    #[must_use]
+    pub fn dex(&self) -> Dex {
+        Dex::new(self.name.clone(), self.index)
+    }
+
+    /// Addresses other than the deployer allowed to send the given `perpDeploy` action
+    /// variant, e.g. `"setOracle"` or `"haltTrading"`. Empty when none are delegated.
+    #[must_use]
+    pub fn sub_deployers_for(&self, variant: &str) -> &[Address] {
+        self.sub_deployers
+            .iter()
+            .find(|grant| {
+                matches!(&grant.permission, SubDeployerPermission::PerpDeploy(action) if action == variant)
+            })
+            .map_or(&[], |grant| grant.users.as_slice())
+    }
+}
+
+/// One per-coin setting of a HIP-3 DEX, such as an OI cap or a funding multiplier.
+///
+/// Sent by the API as a `[coin, value]` array.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(from = "(String, Decimal)")]
+pub struct AssetSetting {
+    /// Coin name, e.g. `xyz:SP500`.
+    pub coin: String,
+    /// The setting's value for this coin.
+    pub value: Decimal,
+}
+
+impl From<(String, Decimal)> for AssetSetting {
+    fn from((coin, value): (String, Decimal)) -> Self {
+        Self { coin, value }
+    }
+}
+
+/// A deployer permission and the sub-deployers allowed to use it.
+///
+/// Sent by the API as a `[permission, [address, ..]]` array.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(from = "(SubDeployerPermission, Vec<Address>)")]
+pub struct SubDeployerGrant {
+    /// The delegated permission.
+    pub permission: SubDeployerPermission,
+    /// Addresses other than the deployer allowed to use it.
+    pub users: Vec<Address>,
+}
+
+impl From<(SubDeployerPermission, Vec<Address>)> for SubDeployerGrant {
+    fn from((permission, users): (SubDeployerPermission, Vec<Address>)) -> Self {
+        Self { permission, users }
+    }
+}
+
+/// A deployer permission a HIP-3 DEX has delegated to sub-deployers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SubDeployerPermission {
+    /// A `perpDeploy` action variant, e.g. `"setOracle"` or `"haltTrading"`.
+    PerpDeploy(String),
+    /// A HIP-3\* proxy-operation grant, sent as exactly `{"hip3Star": "<operation>"}`, e.g.
+    /// `"order"` or `"modifyApproval"`. HIP-3\* venues are testnet-only.
+    Hip3Star {
+        /// The permitted operation.
+        action: String,
+    },
+    /// Any other shape, including a `hip3Star` object with extra fields, kept as raw JSON so
+    /// nothing is dropped.
+    Other(serde_json::Value),
+}
+
+impl<'de> Deserialize<'de> for SubDeployerPermission {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        // Only the exact `{"hip3Star": "<operation>"}` shape is a HIP-3* grant. An object with
+        // any other key, or with more than one, goes to `Other` so no field is lost.
+        let hip3_star = match &value {
+            serde_json::Value::Object(map) if map.len() == 1 => map
+                .get("hip3Star")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+            _ => None,
+        };
+        Ok(match (value, hip3_star) {
+            (serde_json::Value::String(action), _) => Self::PerpDeploy(action),
+            (_, Some(action)) => Self::Hip3Star { action },
+            (value, None) => Self::Other(value),
+        })
+    }
+}
+
 /// Token details from `tokenDetails` info request.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -5163,6 +5305,119 @@ mod tests {
 
         // Check timestamp
         assert_eq!(state.time, 1768397010203);
+    }
+
+    #[test]
+    fn perp_dex_details_keep_indices_and_permissions() {
+        // Trimmed mainnet `perpDexs` response. Index 0 is the validator-operated DEX.
+        let json = r#"[
+            null,
+            {
+                "name": "xyz",
+                "fullName": "XYZ",
+                "deployer": "0x88806a71d74ad0a510b350545c9ae490912f0888",
+                "oracleUpdater": null,
+                "feeRecipient": "0x83ffcfb1f2ad843c474b2e28df86c721cb869d3a",
+                "assetToStreamingOiCap": [["xyz:AAPL", "200000000.0"], ["xyz:CL", "1000000000.0"]],
+                "subDeployers": [
+                    ["haltTrading", ["0x7d16f116d252db609c56d27d6c9605eb03e16657"]],
+                    ["setOracle", ["0x1234567890545d1df9ee64b35fdd16966e08acec"]],
+                    [{"hip3Star": "order"}, ["0x73b69db46d41c6b721fb5cb9ce9f29193140950e"]],
+                    [{"somethingNew": 1}, []]
+                ],
+                "assetToFundingMultiplier": [["xyz:AAPL", "0.5"]],
+                "assetToFundingInterestRate": [["xyz:EUR", "0.0"]],
+                "assetToFundingClamp": []
+            },
+            {
+                "name": "abcd",
+                "fullName": "ABCDEx",
+                "deployer": "0x372c7f6900000000000000000000000000000001",
+                "oracleUpdater": "0x372c7f6900000000000000000000000000000002",
+                "feeRecipient": null,
+                "assetToStreamingOiCap": [],
+                "subDeployers": [],
+                "assetToFundingMultiplier": [],
+                "assetToFundingInterestRate": [],
+                "assetToFundingClamp": [["abcd:USA500", "0.01"]]
+            }
+        ]"#;
+        let dexes = PerpDexDetails::from_response(serde_json::from_str(json).unwrap());
+
+        assert_eq!(dexes.len(), 2);
+        let (xyz, abcd) = (&dexes[0], &dexes[1]);
+        assert_eq!((xyz.index, xyz.name.as_str()), (1, "xyz"));
+        assert_eq!((abcd.index, abcd.name.as_str()), (2, "abcd"));
+        assert_eq!(xyz.dex().index(), 1);
+
+        assert_eq!(
+            xyz.sub_deployers_for("setOracle"),
+            ["0x1234567890545d1df9ee64b35fdd16966e08acec"
+                .parse::<Address>()
+                .unwrap()]
+        );
+        assert!(xyz.sub_deployers_for("setDeployerFees").is_empty());
+        // HIP-3* venues on testnet grant proxy operations as objects. They parse, and never
+        // match a perpDeploy action name.
+        assert_eq!(
+            xyz.sub_deployers[2].permission,
+            SubDeployerPermission::Hip3Star {
+                action: "order".into()
+            }
+        );
+        assert!(matches!(
+            xyz.sub_deployers[3].permission,
+            SubDeployerPermission::Other(_)
+        ));
+        assert!(xyz.sub_deployers_for("order").is_empty());
+        assert!(xyz.oracle_updater.is_none());
+        assert!(abcd.fee_recipient.is_none());
+        assert!(abcd.oracle_updater.is_some());
+
+        assert_eq!(
+            xyz.asset_to_streaming_oi_cap[1],
+            AssetSetting {
+                coin: "xyz:CL".into(),
+                value: Decimal::from(1_000_000_000),
+            }
+        );
+        assert_eq!(
+            abcd.asset_to_funding_clamp,
+            [AssetSetting {
+                coin: "abcd:USA500".into(),
+                value: Decimal::new(1, 2),
+            }]
+        );
+    }
+
+    #[test]
+    fn sub_deployer_permission_keeps_unknown_shapes_intact() {
+        let parse = |json: &str| serde_json::from_str::<SubDeployerPermission>(json).unwrap();
+
+        assert_eq!(
+            parse(r#""setOracle""#),
+            SubDeployerPermission::PerpDeploy("setOracle".into())
+        );
+        assert_eq!(
+            parse(r#"{"hip3Star":"order"}"#),
+            SubDeployerPermission::Hip3Star {
+                action: "order".into()
+            }
+        );
+
+        // Anything but the exact known shape is preserved as-is instead of losing fields.
+        for json in [
+            r#"{"hip3Star":"order","scope":"future"}"#,
+            r#"{"hip3Star":5}"#,
+            r#"{"somethingNew":"order"}"#,
+            r#"["setOracle"]"#,
+        ] {
+            assert_eq!(
+                parse(json),
+                SubDeployerPermission::Other(serde_json::from_str(json).unwrap()),
+                "{json}"
+            );
+        }
     }
 
     #[test]

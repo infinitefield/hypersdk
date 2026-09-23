@@ -2181,6 +2181,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_http_perp_dex_details() {
+        for client in [hypercore::mainnet(), hypercore::testnet()] {
+            let details = client.perp_dex_details().await.unwrap();
+            let dexes = client.perp_dexes().await.unwrap();
+            assert!(!details.is_empty());
+
+            // HIP-3 asset IDs are derived from the index, so both methods must agree on it.
+            assert_eq!(details.len(), dexes.len());
+            for (detail, dex) in details.iter().zip(&dexes) {
+                assert_eq!(
+                    (detail.name.as_str(), detail.index),
+                    (dex.name(), dex.index())
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn test_http_spot() {
         let client = hypercore::mainnet();
         let spots = client.spot().await.unwrap();

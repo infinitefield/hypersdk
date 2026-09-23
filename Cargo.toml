@@ -44,6 +44,10 @@ name = "list-hip3"
 path = "examples/hypercore/list-hip3.rs"
 
 [[example]]
+name = "hip3-dex-details"
+path = "examples/hypercore/hip3-dex-details.rs"
+
+[[example]]
 name = "multisig_order"
 path = "examples/hypercore/multisig_order.rs"
 
