@@ -60,6 +60,49 @@ List all available HIP-3 perpetual DEXes.
 hypecli dexes
 ```
 
+### HIP-3 DEX Operations
+
+Commands for a HIP-3 DEX's deployer, or a sub-deployer it has granted the action.
+
+```bash
+# Show a DEX's deployer, sub-deployers, and per-coin OI caps and funding settings
+hypecli dex info --dex xyz
+
+# Halt trading on a coin, then resume it
+hypecli dex halt \
+  --keystore my-wallet \
+  --coin xyz:SP500
+hypecli dex resume \
+  --keystore my-wallet \
+  --coin xyz:SP500
+
+# Let another address push oracle prices. Add --revoke to take it back.
+hypecli dex sub-deployer \
+  --keystore my-wallet \
+  --dex xyz \
+  --user 0xOracleSigner... \
+  --permission setOracle
+```
+
+HIP-3\* venues (testnet-only) keep an allowlist of users and let the deployer act on their behalf:
+
+```bash
+# Add a user to the allowlist; disallow removes them and clears their flags
+hypecli dex allow --chain testnet --keystore my-wallet --dex test --user 0xUser...
+hypecli dex disallow --chain testnet --keystore my-wallet --dex test --user 0xUser...
+
+# Restrict a user to reducing positions. Add --off to restore full trading.
+hypecli dex reduce-only --chain testnet --keystore my-wallet --dex test --user 0xUser...
+
+# Cancel a user's resting orders and TWAPs on the venue
+hypecli dex cancel-all --chain testnet --keystore my-wallet --dex test --user 0xUser...
+
+# Show a user's approval and flags on every HIP-3* venue
+hypecli dex star-state 0xUser... --chain testnet
+```
+
+To delegate a HIP-3\* operation, pass `--permission hip3Star:<operation>`, e.g. `hip3Star:modifyApproval`. `dex info` prints grants in the same form.
+
 ### List Perpetual Markets
 
 List perpetual markets from Hyperliquid or a specific HIP-3 DEX.
@@ -338,6 +381,7 @@ The same `--multi-sig-addr <ADDRESS>` and `--local` options work on:
 - `order limit`, `order market`, and `order cancel`
 - `vault deposit` and `vault withdraw`
 - `outcome split`, `outcome merge`, `outcome merge-question`, and `outcome negate`
+- `dex halt`, `dex resume`, `dex sub-deployer`, `dex allow`, `dex disallow`, `dex reduce-only`, and `dex cancel-all`
 - `prio bid`
 
 These commands, Send, and Earn share the same software-key, Ledger, and Trezor
