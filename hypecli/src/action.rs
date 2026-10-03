@@ -34,8 +34,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        Cli, Command, earn::EarnCmd, orders::OrderCmd, outcome::OutcomeCmd, prio::PrioCmd,
-        vault::VaultCmd,
+        Cli, Command, dex::DexCmd, earn::EarnCmd, orders::OrderCmd, outcome::OutcomeCmd,
+        prio::PrioCmd, vault::VaultCmd,
     };
 
     fn action_args(command: Command) -> ActionArgs {
@@ -51,6 +51,12 @@ mod tests {
             Command::Outcome(OutcomeCmd::MergeQuestion(cmd)) => cmd.signer,
             Command::Outcome(OutcomeCmd::Negate(cmd)) => cmd.signer,
             Command::Prio(PrioCmd::Bid(cmd)) => cmd.signer,
+            Command::Dex(DexCmd::Halt(cmd) | DexCmd::Resume(cmd)) => cmd.signer,
+            Command::Dex(DexCmd::SubDeployer(cmd)) => cmd.signer,
+            Command::Dex(DexCmd::Allow(cmd) | DexCmd::Disallow(cmd) | DexCmd::CancelAll(cmd)) => {
+                cmd.signer
+            }
+            Command::Dex(DexCmd::ReduceOnly(cmd)) => cmd.star.signer,
             _ => panic!("expected an action command"),
         }
     }
@@ -74,6 +80,15 @@ mod tests {
             "outcome merge-question --question 3",
             "outcome negate --question 3 --outcome 20 --amount 10",
             "prio bid --max 1 --ip 127.0.0.1",
+            "dex halt --coin xyz:SP500",
+            "dex resume --coin xyz:SP500",
+            "dex sub-deployer --dex xyz --user 0x2222222222222222222222222222222222222222 --permission setOracle",
+            "dex sub-deployer --dex xyz --user 0x2222222222222222222222222222222222222222 --permission hip3Star:modifyApproval --revoke",
+            "dex allow --dex test --user 0x2222222222222222222222222222222222222222",
+            "dex disallow --dex test --user 0x2222222222222222222222222222222222222222",
+            "dex reduce-only --dex test --user 0x2222222222222222222222222222222222222222",
+            "dex reduce-only --dex test --user 0x2222222222222222222222222222222222222222 --off",
+            "dex cancel-all --dex test --user 0x2222222222222222222222222222222222222222",
         ];
         for case in cases {
             let mut args = vec!["hypecli"];
