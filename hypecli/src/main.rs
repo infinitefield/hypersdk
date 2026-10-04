@@ -1,6 +1,7 @@
 mod account;
 mod action;
 mod balances;
+mod dex;
 mod earn;
 mod markets;
 mod morpho;
@@ -21,6 +22,7 @@ mod vault;
 use account::AccountCmd;
 use balances::BalanceCmd;
 use clap::{Args, Parser};
+use dex::DexCmd;
 use earn::EarnCmd;
 use hypersdk::hypercore::Chain;
 use markets::{DexesCmd, PerpsCmd, SpotCmd};
@@ -60,6 +62,9 @@ enum Command {
     Balance(BalanceCmd),
     /// List HIP-3 DEXes
     Dexes(DexesCmd),
+    /// HIP-3 DEX deployer operations (inspect, halt, sub-deployers, HIP-3* allowlist)
+    #[command(subcommand)]
+    Dex(DexCmd),
     /// Hyperliquid Earn: supply, withdraw, and query the borrow/lend reserve
     #[command(subcommand)]
     Earn(EarnCmd),
@@ -112,6 +117,7 @@ impl Command {
             Self::Account(cmd) => cmd.run().await,
             Self::Balance(cmd) => cmd.run().await,
             Self::Dexes(cmd) => cmd.run().await,
+            Self::Dex(cmd) => cmd.run().await,
             Self::Earn(cmd) => cmd.run().await,
             Self::Perps(cmd) => cmd.run().await,
             Self::Spot(cmd) => cmd.run().await,
@@ -200,8 +206,8 @@ Commands that modify state (orders, transfers, etc.) require authentication via 
   --trezor-path <PATH>  Select a full Trezor derivation path directly
   --trezor-scan-limit <N>  Search N addresses locally from a Trezor xpub (default: 10)
 
-Orders, sends, Earn, vault transfers, outcome operations, and priority bids support Ledger
-and Trezor. Add --multi-sig-addr <ADDRESS> for multisig and --local to require local signers.
+Orders, sends, Earn, vault transfers, outcome operations, DEX deployer actions, and priority
+bids support Ledger and Trezor. Add --multi-sig-addr <ADDRESS> for multisig and --local to require local signers.
 Automated TWAP requires a private key or keystore for continuous signing.
 
 Agent (API wallet) private keys are accepted for L1 actions (orders, TWAP, vault transfers,
@@ -415,6 +421,75 @@ Negate an Outcome within a Question:
 
   Converts shares of one outcome into the complementary basket (the "No" of
   that outcome) within a categorical question.
+
+DEX COMMANDS (HIP-3 DEPLOYERS)
+------------------------------
+
+Signed commands must come from the DEX's deployer or a sub-deployer it has
+granted that action. HIP-3* venues (allowlisted, testnet-only) add allow,
+disallow, reduce-only, and cancel-all, which act on one user of the venue.
+
+Show a DEX's Configuration:
+  hypecli dex info --dex xyz
+  hypecli dex info --dex test --chain testnet
+
+  Prints the deployer, oracle updater, fee recipient, net deposit, the
+  sub-deployers of each delegated action, and per-coin OI caps and funding
+  settings. HIP-3* grants print as hip3Star:<operation>.
+
+Halt or Resume Trading on a Coin:
+  hypecli dex halt \
+    --chain mainnet \
+    --private-key <HEX> \
+    --coin xyz:SP500
+
+  hypecli dex resume \
+    --chain mainnet \
+    --private-key <HEX> \
+    --coin xyz:SP500
+
+  --coin needs the DEX prefix.
+
+Grant or Revoke a Sub-Deployer Permission:
+  hypecli dex sub-deployer \
+    --chain mainnet \
+    --private-key <HEX> \
+    --dex xyz \
+    --user <ADDRESS> \
+    --permission setOracle
+
+  --permission takes a perpDeploy action such as setOracle or haltTrading, or
+  hip3Star:<operation> for a HIP-3* operation, e.g. hip3Star:modifyApproval.
+  Add --revoke to remove the permission.
+
+Add or Remove a HIP-3* User (testnet-only):
+  hypecli dex allow \
+    --chain testnet \
+    --private-key <HEX> \
+    --dex test \
+    --user <ADDRESS>
+
+  hypecli dex disallow takes the same arguments. Removing a user clears their
+  flags; approving them again starts them with the defaults.
+
+Restrict a HIP-3* User to Reducing Positions (testnet-only):
+  hypecli dex reduce-only \
+    --chain testnet \
+    --private-key <HEX> \
+    --dex test \
+    --user <ADDRESS>
+
+  Add --off to restore full trading.
+
+Cancel a HIP-3* User's Orders and TWAPs (testnet-only):
+  hypecli dex cancel-all \
+    --chain testnet \
+    --private-key <HEX> \
+    --dex test \
+    --user <ADDRESS>
+
+Show a User's HIP-3* State:
+  hypecli dex star-state <ADDRESS> --chain testnet
 
 MULTI-SIG COMMANDS
 ------------------
