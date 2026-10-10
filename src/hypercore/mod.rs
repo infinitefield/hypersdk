@@ -204,7 +204,8 @@ pub struct NonceHandler {
 ///
 /// Each [`OutcomeInfo`] produces N order books (one per [`OutcomeSideSpec`]).
 /// The market field stores the Hyperliquid asset index directly:
-/// `100_000_000 + outcome_id * 10 + side_index` where side_index is 0 for "Yes" and 1 otherwise.
+/// `100_000_000 + outcome_id * 10 + side_index`, where side_index is the side's position in
+/// [`OutcomeInfo::side_specs`].
 #[derive(Debug, Clone)]
 pub struct OutcomeMarket {
     /// Outcome metadata
@@ -1409,7 +1410,8 @@ pub struct OutcomeSideSpec {
 }
 
 /// Outcome market.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(from = "RawOutcomeInfo")]
 pub struct OutcomeInfo {
     /// Outcome ID
     pub outcome: u32,
@@ -1419,6 +1421,13 @@ pub struct OutcomeInfo {
     pub description: String,
     /// The two sides of this outcome
     pub side_specs: Vec<OutcomeSideSpec>,
+    /// Token the outcome is quoted and settled in (e.g., "USDC")
+    pub quote_token: Option<String>,
+    /// Venue of the HIP-4 deployer that listed the outcome (e.g., "out"). `None` for outcomes
+    /// listed without one, such as the daily "Recurring" markets
+    pub venue: Option<String>,
+    /// The deployer fee scale for this outcome, if its deployer set one
+    pub deployer_fee_scale: Option<Decimal>,
 }
 
 /// Groups multiple outcomes into a question.
@@ -1443,6 +1452,66 @@ pub struct OutcomeQuestion {
 pub struct OutcomeMeta {
     pub outcomes: Vec<OutcomeInfo>,
     pub questions: Vec<OutcomeQuestion>,
+}
+
+/// How a HIP-4 outcome settled, from the `settledOutcome` info request.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettledOutcome {
+    /// The outcome as it was listed
+    pub spec: OutcomeInfo,
+    /// Quote tokens paid per share of the first side. The second side receives
+    /// `1 - settle_fraction`
+    pub settle_fraction: Decimal,
+    /// Settlement details from the deployer, such as `price:78212.4`, or `template`
+    pub details: String,
+    /// The question the outcome belongs to, if any
+    pub question: Option<SettledOutcomeQuestion>,
+}
+
+/// The question a [`SettledOutcome`] belongs to.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SettledOutcomeQuestion {
+    /// Question ID, and whether the question has settled
+    pub question: OutcomeQuestionState,
+    /// Question name
+    pub name: String,
+    /// Question description
+    pub description: String,
+}
+
+/// Whether a question has settled, as reported with a [`SettledOutcome`].
+///
+/// The outcomes of a question can settle one at a time, so a settled outcome can belong to a
+/// question that is still active.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OutcomeQuestionState {
+    /// The question is still open, sent as `{"active": <question>}`
+    Active(u32),
+    /// The question has settled, sent as `{"settled": <question>}`
+    Settled(u32),
+    /// Any other shape, kept as raw JSON so nothing is dropped
+    Other(serde_json::Value),
+}
+
+impl<'de> Deserialize<'de> for OutcomeQuestionState {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        // Only an object with exactly one known key and a question ID is a known state.
+        let known = value
+            .as_object()
+            .filter(|map| map.len() == 1)
+            .and_then(|map| {
+                let (state, question) = map.iter().next()?;
+                let question = u32::try_from(question.as_u64()?).ok()?;
+                match state.as_str() {
+                    "active" => Some(Self::Active(question)),
+                    "settled" => Some(Self::Settled(question)),
+                    _ => None,
+                }
+            });
+        Ok(known.unwrap_or(Self::Other(value)))
+    }
 }
 
 impl PartialEq for OutcomeInfo {
@@ -1785,20 +1854,7 @@ pub async fn outcome_meta(
     let raw: RawOutcomeMeta = resp.json().await?;
 
     Ok(OutcomeMeta {
-        outcomes: raw
-            .outcomes
-            .into_iter()
-            .map(|o| OutcomeInfo {
-                outcome: o.outcome,
-                name: o.name,
-                description: o.description,
-                side_specs: o
-                    .side_specs
-                    .into_iter()
-                    .map(|s| OutcomeSideSpec { name: s.name })
-                    .collect(),
-            })
-            .collect(),
+        outcomes: raw.outcomes.into_iter().map(OutcomeInfo::from).collect(),
         questions: raw
             .questions
             .into_iter()
@@ -1816,19 +1872,25 @@ pub async fn outcome_meta(
 
 /// Fetch all outcome markets, returning one [`OutcomeMarket`] per side.
 ///
-/// The market index is calculated as `outcome * 10 + side_index` where
-/// "Yes" gets side index 0 and all other sides get 1.
+/// The market index is `100_000_000 + outcome * 10 + side_index`, where `side_index` is the
+/// side's position in [`OutcomeInfo::side_specs`].
 pub async fn outcomes(
     core_url: impl IntoUrl,
     client: reqwest::Client,
 ) -> anyhow::Result<Vec<OutcomeMarket>> {
     let meta = outcome_meta(core_url, client).await?;
+    Ok(outcome_markets(&meta))
+}
 
+/// Returns one [`OutcomeMarket`] per side of every outcome in `meta`.
+///
+/// Sides are indexed by position, not by name: template outcomes name their sides
+/// `template:Yes` and `template:No`, or after the participants.
+fn outcome_markets(meta: &OutcomeMeta) -> Vec<OutcomeMarket> {
     let mut result = Vec::new();
     for o in &meta.outcomes {
-        for side in &o.side_specs {
-            let is_yes = side.name == "Yes";
-            let market = 100_000_000 + (o.outcome as usize) * 10 + usize::from(!is_yes);
+        for (side_index, side) in o.side_specs.iter().enumerate() {
+            let market = 100_000_000 + (o.outcome as usize) * 10 + side_index;
             result.push(OutcomeMarket {
                 info: o.clone(),
                 side: side.name.clone(),
@@ -1837,7 +1899,7 @@ pub async fn outcomes(
         }
     }
 
-    Ok(result)
+    result
 }
 
 #[derive(Deserialize)]
@@ -1856,6 +1918,28 @@ struct RawOutcomeInfo {
     name: String,
     description: String,
     side_specs: Vec<RawOutcomeSideSpec>,
+    quote_token: Option<String>,
+    venue: Option<String>,
+    #[serde(default, with = "rust_decimal::serde::str_option")]
+    deployer_fee_scale: Option<Decimal>,
+}
+
+impl From<RawOutcomeInfo> for OutcomeInfo {
+    fn from(raw: RawOutcomeInfo) -> Self {
+        Self {
+            outcome: raw.outcome,
+            name: raw.name,
+            description: raw.description,
+            side_specs: raw
+                .side_specs
+                .into_iter()
+                .map(|s| OutcomeSideSpec { name: s.name })
+                .collect(),
+            quote_token: raw.quote_token,
+            venue: raw.venue,
+            deployer_fee_scale: raw.deployer_fee_scale,
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -2022,7 +2106,11 @@ struct EvmContract {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, sync::Arc, thread};
+    use std::{
+        collections::{HashMap, HashSet},
+        sync::Arc,
+        thread,
+    };
 
     use alloy::primitives::address;
 
@@ -2148,6 +2236,13 @@ mod tests {
                 .iter()
                 .any(|(_, venues)| venues.iter().any(|(_, predicted)| predicted.is_none()))
         );
+
+        // Outcome 9 is a named outcome of an early BTC price-bucket question, settled at 0.
+        let settled = client.settled_outcome(9).await.unwrap().unwrap();
+        assert_eq!(settled.spec.outcome, 9);
+        assert!(settled.question.is_some());
+        // An outcome that has not settled, or does not exist, comes back as null.
+        assert!(client.settled_outcome(999_999_999).await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -2400,6 +2495,18 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn test_http_outcome_markets_are_distinct() {
+        for client in [hypercore::mainnet(), hypercore::testnet()] {
+            let markets = client.outcomes().await.unwrap();
+            assert!(!markets.is_empty());
+            // Every side of every outcome is its own asset. Template outcomes name their sides
+            // "template:Yes" and "template:No", which a match on "Yes" gave the same index.
+            let unique: HashSet<usize> = markets.iter().map(|m| m.market).collect();
+            assert_eq!(unique.len(), markets.len());
+        }
+    }
+
     #[test]
     fn outcome_meta_deserialize() {
         let json = r#"{
@@ -2447,5 +2554,172 @@ mod tests {
         let meta: RawOutcomeMeta = serde_json::from_str(json).unwrap();
         assert!(meta.outcomes.is_empty());
         assert!(meta.questions.is_empty());
+    }
+
+    #[test]
+    fn outcome_info_deserialize_venue_fields() {
+        // A deployer-listed outcome, and one of the daily "Recurring" markets, which have no
+        // venue or deployer fee scale, as mainnet sends them.
+        let json = r#"[
+            {
+                "outcome": 1472,
+                "name": "template fallback",
+                "description": "other",
+                "sideSpecs": [{"name": "Yes"}, {"name": "No"}],
+                "quoteToken": "USDC",
+                "venue": "out",
+                "deployerFeeScale": "1.0"
+            },
+            {
+                "outcome": 3,
+                "name": "Recurring",
+                "description": "class:priceBinary|underlying:BTC|expiry:20260506-0600|targetPrice:80930|period:1d",
+                "sideSpecs": [{"name": "Yes"}, {"name": "No"}],
+                "quoteToken": "USDH"
+            }
+        ]"#;
+        let outcomes: Vec<OutcomeInfo> = serde_json::from_str(json).unwrap();
+        assert_eq!(outcomes[0].quote_token.as_deref(), Some("USDC"));
+        assert_eq!(outcomes[0].venue.as_deref(), Some("out"));
+        assert_eq!(outcomes[0].deployer_fee_scale, Some(Decimal::ONE));
+        assert_eq!(outcomes[1].quote_token.as_deref(), Some("USDH"));
+        assert_eq!(outcomes[1].venue, None);
+        assert_eq!(outcomes[1].deployer_fee_scale, None);
+    }
+
+    #[test]
+    fn outcome_markets_index_sides_by_position() {
+        // Template outcomes do not name their first side "Yes". Matching on the name gave both
+        // sides of these outcomes the second side's asset index.
+        let json = r#"[
+            {
+                "outcome": 1472,
+                "name": "template fallback",
+                "description": "other",
+                "sideSpecs": [{"name": "Yes"}, {"name": "No"}]
+            },
+            {
+                "outcome": 8591,
+                "name": "template:binaryPrice",
+                "description": "perp:BTC|priceDescription:BTC-USDC perp mark|seconds:60|threshold:85734|time:20261005-0600",
+                "sideSpecs": [{"name": "template:Yes"}, {"name": "template:No"}]
+            },
+            {
+                "outcome": 6733,
+                "name": "template:sportsContestWinner",
+                "description": "shortNameA:Buccaneers|shortNameB:Cowboys",
+                "sideSpecs": [{"name": "template:{shortNameA}"}, {"name": "template:{shortNameB}"}]
+            }
+        ]"#;
+        let meta = OutcomeMeta {
+            outcomes: serde_json::from_str(json).unwrap(),
+            questions: vec![],
+        };
+
+        let markets: Vec<(String, usize, String)> = outcome_markets(&meta)
+            .iter()
+            .map(|m| (m.side.clone(), m.market, m.coin()))
+            .collect();
+        assert_eq!(
+            markets,
+            [
+                ("Yes", 100_014_720, "#14720"),
+                ("No", 100_014_721, "#14721"),
+                ("template:Yes", 100_085_910, "#85910"),
+                ("template:No", 100_085_911, "#85911"),
+                ("template:{shortNameA}", 100_067_330, "#67330"),
+                ("template:{shortNameB}", 100_067_331, "#67331"),
+            ]
+            .map(|(side, market, coin)| (side.to_string(), market, coin.to_string()))
+        );
+    }
+
+    #[test]
+    fn settled_outcome_deserialize() {
+        // A standalone outcome, a named outcome of a settled question, and a named outcome of a
+        // question that is still active, as mainnet and testnet send them.
+        let standalone: SettledOutcome = serde_json::from_str(
+            r#"{
+                "spec": {
+                    "outcome": 3,
+                    "name": "Recurring",
+                    "description": "class:priceBinary|underlying:BTC|expiry:20260506-0600|targetPrice:80930|period:1d",
+                    "sideSpecs": [{"name": "Yes"}, {"name": "No"}],
+                    "quoteToken": "USDH"
+                },
+                "settleFraction": "1.0",
+                "details": "price:81290.9"
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(standalone.spec.outcome, 3);
+        assert_eq!(standalone.spec.quote_token.as_deref(), Some("USDH"));
+        assert_eq!(standalone.settle_fraction, Decimal::ONE);
+        assert_eq!(standalone.details, "price:81290.9");
+        assert!(standalone.question.is_none());
+
+        let named: SettledOutcome = serde_json::from_str(
+            r#"{
+                "spec": {
+                    "outcome": 9,
+                    "name": "Recurring Named Outcome",
+                    "description": "index:2",
+                    "sideSpecs": [{"name": "Yes"}, {"name": "No"}],
+                    "quoteToken": "USDH"
+                },
+                "settleFraction": "0.0",
+                "details": "price:79580.2",
+                "question": {
+                    "question": {"settled": 0},
+                    "name": "Recurring",
+                    "description": "class:priceBucket|underlying:BTC|expiry:20260508-0600|priceThresholds:79303,82540|period:1d"
+                }
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(named.settle_fraction, Decimal::ZERO);
+        let question = named.question.unwrap();
+        assert_eq!(question.question, OutcomeQuestionState::Settled(0));
+        assert_eq!(question.name, "Recurring");
+
+        let active: SettledOutcome = serde_json::from_str(
+            r#"{
+                "spec": {
+                    "outcome": 12568,
+                    "name": "template:sportsContestParticipant",
+                    "description": "participant:Arsenal",
+                    "sideSpecs": [{"name": "Yes"}, {"name": "No"}],
+                    "quoteToken": "USDC",
+                    "venue": "mig",
+                    "deployerFeeScale": "1.0"
+                },
+                "settleFraction": "0.0",
+                "details": "template",
+                "question": {
+                    "question": {"active": 979},
+                    "name": "template:sportsContestResult",
+                    "description": "participantA:Arsenal|participantB:Chelsea"
+                }
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(active.spec.venue.as_deref(), Some("mig"));
+        assert_eq!(
+            active.question.unwrap().question,
+            OutcomeQuestionState::Active(979)
+        );
+
+        // The exchange answers null for an outcome that has not settled.
+        let unsettled: Option<SettledOutcome> = serde_json::from_str("null").unwrap();
+        assert!(unsettled.is_none());
+    }
+
+    #[test]
+    fn outcome_question_state_keeps_unknown_shapes() {
+        let state: OutcomeQuestionState = serde_json::from_str(r#"{"paused": 5}"#).unwrap();
+        assert_eq!(
+            state,
+            OutcomeQuestionState::Other(serde_json::json!({"paused": 5}))
+        );
     }
 }

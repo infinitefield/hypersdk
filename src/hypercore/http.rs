@@ -57,7 +57,8 @@ use url::Url;
 use super::{ApiError, AssetTarget, signing::*};
 use crate::hypercore::{
     ActionError, ApiAgent, Builder, CandleInterval, Chain, Cloid, Dex, GossipPriorityAuctionStatus,
-    Market, MultiSigConfig, OidOrCloid, OutcomeMeta, PerpMarket, Signature, SpotMarket, SpotToken,
+    Market, MultiSigConfig, OidOrCloid, OutcomeMeta, PerpMarket, SettledOutcome, Signature,
+    SpotMarket, SpotToken,
     api::{
         Action, ActionRequest, AddressEncoding, ApproveAgent, ApproveBuilderFee, Aqav2Role,
         AuthorizeAqav2Role, BorrowLendAction, CSignerAction, CValidatorAction,
@@ -2335,8 +2336,9 @@ impl Client {
         self.send_info_request("token_details", &req).await
     }
 
-    /// Returns settled outcome market result.
-    pub async fn settled_outcome(&self, outcome: u64) -> Result<serde_json::Value> {
+    /// Returns how a HIP-4 outcome settled, or `None` if it has not settled. The exchange
+    /// answers `null` both for an outcome that is still trading and for an unknown ID.
+    pub async fn settled_outcome(&self, outcome: u64) -> Result<Option<SettledOutcome>> {
         let req = InfoRequest::SettledOutcome { outcome };
         self.send_info_request("settled_outcome", &req).await
     }
