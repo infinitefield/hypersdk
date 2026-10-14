@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- `signing::rmp_hash`, the MessagePack action hash with its nonce, vault and expiry suffix, for callers that hash or verify requests outside `Action`.
 - `client` feature, on by default, for the HTTP, WebSocket and HyperEVM clients. With `default-features = false` the crate only models, encodes and signs actions, without reqwest, tokio or the alloy provider stack.
 
 ### Fixed

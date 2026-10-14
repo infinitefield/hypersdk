@@ -349,7 +349,10 @@ where
 /// # Returns
 ///
 /// The Keccak256 hash as a B256, or an error if serialization fails.
-pub(super) fn rmp_hash<T: Serialize>(
+///
+/// [`Action::hash`](crate::hypercore::api::Action::hash) is this hash over an action with its
+/// `type` tag. A multisig envelope hashes its `MultiSigAction`, which has none.
+pub fn rmp_hash<T: Serialize>(
     value: &T,
     nonce: u64,
     maybe_vault_address: Option<Address>,

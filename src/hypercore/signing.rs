@@ -16,11 +16,12 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
+pub use crate::hypercore::utils::rmp_hash;
 use crate::hypercore::{
     Chain,
     api::{Action, MultiSigAction, MultiSigPayload},
     types::{CORE_MAINNET_EIP712_DOMAIN, Signature, solidity},
-    utils::{get_typed_data, rmp_hash},
+    utils::get_typed_data,
 };
 
 /// Computes the EIP-712 signing hash for an Agent struct with the given connection ID.
