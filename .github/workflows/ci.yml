@@ -37,3 +37,6 @@ jobs:
 
       - name: Run tests
         run: cargo test --lib -- --nocapture
+
+      - name: Run tests without the network clients
+        run: cargo test --lib --no-default-features -- --nocapture

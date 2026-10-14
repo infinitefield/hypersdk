@@ -130,6 +130,7 @@ the modelled ones.
 
 ```bash
 cargo fmt && cargo clippy -p hypersdk --all-targets && cargo test --lib
+cargo test --lib --no-default-features
 ```
 
 Four `too many arguments` clippy warnings are pre-existing; leave it no worse than you found
