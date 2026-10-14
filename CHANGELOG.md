@@ -10,12 +10,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - `Action::user_signed_typed_data`, the EIP-712 typed data a user-signed action is signed over, for signers that need the fields rather than a digest.
 - `signing::rmp_hash`, the MessagePack action hash with its nonce, vault and expiry suffix, for callers that hash or verify requests outside `Action`.
+- `local-signer` feature, on by default, for `PrivateKeySigner`. Without it, signing goes through any alloy `Signer` or an external signer over `prehash`, and alloy's transaction and network types are not built.
 - `client` feature, on by default, for the HTTP, WebSocket and HyperEVM clients. With `default-features = false` the crate only models, encodes and signs actions, without reqwest, tokio or the alloy provider stack.
 
 ### Fixed
 
 - Updated hypecli's SDK dependency requirement to 0.3.0 so release builds resolve the local SDK.
 - User-signed actions and multisig envelopes are signed under the EIP-712 domain their own `signatureChainId` names, as the exchange verifies them. Previously the domain always followed the network, so an action carrying the Python SDK's `0x66eee` on Mainnet got a signature that recovered to another address.
+- `serde_with` now requests its `macros` feature itself instead of relying on alloy enabling it.
 - `convertToMultiSigUser` writes its signers string as the Python SDK does: sorted lowercase addresses with `json.dumps` spacing.
 
 ## [v0.3.0] - 2026-10-12

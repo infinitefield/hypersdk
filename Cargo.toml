@@ -190,7 +190,10 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 ## Runtime dependencies
 [features]
-default = ["client"]
+default = ["client", "local-signer"]
+# `PrivateKeySigner`. It brings alloy's transaction and network types, which signing
+# Hyperliquid actions with an external signer does not need.
+local-signer = ["alloy/getrandom", "alloy/signer-local"]
 # HTTP, WebSocket and HyperEVM clients. Without it the crate only models, encodes and
 # signs actions, and pulls in no networking stack.
 client = [
@@ -209,7 +212,7 @@ client = [
 ]
 
 [dependencies]
-alloy = { version = "2", default-features = false, features = ["dyn-abi", "eip712", "getrandom", "signer-local", "signers", "sol-types"] }
+alloy = { version = "2", default-features = false, features = ["dyn-abi", "eip712", "signers", "sol-types"] }
 anyhow = "1"
 base64 = "0.23"
 thiserror = "2"
@@ -224,7 +227,7 @@ rmp-serde = "1"
 rust_decimal = { version = "1.39", features = ["macros", "maths", "serde", "serde-with-str"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-serde_with = { version = "3", default-features = false, features = ["std"] }
+serde_with = { version = "3", default-features = false, features = ["macros", "std"] }
 tokio = { version = "1", default-features = false, features = ["test-util", "time"], optional = true }
 tokio-util = { version = "0.7", default-features = false, optional = true }
 url = { version = "2", optional = true }
@@ -235,7 +238,7 @@ num-traits = "0.2"
 
 ## Development and test dependencies
 [dev-dependencies]
-alloy = { version = "2", features = ["pubsub", "signer-keystore"], default-features = false }
+alloy = { version = "2", features = ["getrandom", "pubsub", "signer-keystore", "signer-local"], default-features = false }
 clap = { version = "4", features = ["derive"] }
 dotenvy = "0.15.7"
 indicatif = "0.18.3"

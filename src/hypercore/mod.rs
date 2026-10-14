@@ -103,6 +103,7 @@ use std::{
 };
 
 /// Reimport signers.
+#[cfg(feature = "local-signer")]
 pub use alloy::signers::local::PrivateKeySigner;
 use alloy::{
     dyn_abi::Eip712Domain,
