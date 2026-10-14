@@ -982,6 +982,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "client")]
     /// Checks that testnet still parses every deployer action shape this module builds.
     ///
     /// Signs each action with a throwaway key, so none of them can take effect: an account

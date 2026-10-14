@@ -234,7 +234,9 @@
 //!   - [`hyperevm::uniswap`]: Uniswap V3 DEX integration
 
 pub mod hypercore;
+#[cfg(feature = "client")]
 pub mod hyperevm;
+mod units;
 
 /// Re-exported Ethereum address type from Alloy.
 ///

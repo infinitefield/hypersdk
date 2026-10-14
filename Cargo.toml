@@ -189,8 +189,27 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 ## Runtime dependencies
+[features]
+default = ["client"]
+# HTTP, WebSocket and HyperEVM clients. Without it the crate only models, encodes and
+# signs actions, and pulls in no networking stack.
+client = [
+  "dep:futures",
+  "dep:reqwest",
+  "dep:tokio",
+  "dep:tokio-util",
+  "dep:url",
+  "dep:yawc",
+  "alloy/contract",
+  "alloy/providers",
+  "alloy/reqwest",
+  "alloy/reqwest-rustls-tls",
+  "alloy/rpc",
+  "alloy/rpc-types",
+]
+
 [dependencies]
-alloy = { version = "2", default-features = false, features = ["contract", "eip712", "getrandom", "providers", "reqwest", "reqwest-rustls-tls", "rpc", "rpc-types", "signer-local", "signers", "sol-types"] }
+alloy = { version = "2", default-features = false, features = ["dyn-abi", "eip712", "getrandom", "signer-local", "signers", "sol-types"] }
 anyhow = "1"
 base64 = "0.23"
 thiserror = "2"
@@ -198,18 +217,18 @@ const-hex = { version = "1.17", features = ["serde"] }
 derive_more = { version = "2", features = ["display", "is_variant"] }
 either = { version = "1", features = ["serde"] }
 flate2 = "1"
-futures = { version = "0.3", default-features = false, features = ["std"] }
+futures = { version = "0.3", default-features = false, features = ["std"], optional = true }
 log = "0.4"
-reqwest = { version = "0.13", features = ["json"] }
+reqwest = { version = "0.13", features = ["json"], optional = true }
 rmp-serde = "1"
 rust_decimal = { version = "1.39", features = ["macros", "maths", "serde", "serde-with-str"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_with = { version = "3", default-features = false, features = ["std"] }
-tokio = { version = "1", default-features = false, features = ["test-util", "time"] }
-tokio-util = { version = "0.7", default-features = false }
-url = "2"
-yawc = { version = "0.3", features = ["simd"] }
+tokio = { version = "1", default-features = false, features = ["test-util", "time"], optional = true }
+tokio-util = { version = "0.7", default-features = false, optional = true }
+url = { version = "2", optional = true }
+yawc = { version = "0.3", features = ["simd"], optional = true }
 hex-literal = "1"
 chrono = { version = "0.4", features = ["now"] }
 num-traits = "0.2"

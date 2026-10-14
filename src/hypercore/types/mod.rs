@@ -3473,6 +3473,7 @@ pub struct PerpDexDetails {
 impl PerpDexDetails {
     /// Pairs each entry of a raw `perpDexs` response with its index. The first entry is the
     /// validator-operated DEX, which the API returns as `null`.
+    #[cfg_attr(not(feature = "client"), allow(dead_code))]
     pub(crate) fn from_response(dexes: Vec<Option<Self>>) -> Vec<Self> {
         dexes
             .into_iter()
@@ -4287,6 +4288,7 @@ pub struct CandleSnapshotRequest {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[serde(tag = "type")]
+#[cfg_attr(not(feature = "client"), allow(dead_code))]
 pub(super) enum InfoRequest {
     Meta {
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -5898,6 +5900,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "client")]
     /// Checks that mainnet still answers every info request this SDK can build.
     ///
     /// Serialization tests only prove the SDK sends what it intends to; they cannot notice
@@ -6112,6 +6115,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "client")]
     /// Checks that mainnet still accepts every subscription this SDK can build.
     ///
     /// The websocket counterpart to `info_requests_are_still_answered`, and the check that
@@ -6237,6 +6241,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "client")]
     /// Checks that the market-wide feeds still deserialize into their modelled types.
     ///
     /// `subscriptions_are_still_accepted` only proves the exchange accepts a subscription; a
