@@ -308,8 +308,13 @@ impl Action {
 }
 
 impl Action {
-    /// Classify every action once for both ordinary and multisig signing.
-    fn user_signed_typed_data(&self, chain: Chain) -> Option<TypedData> {
+    /// EIP-712 typed data for a user-signed action, or `None` for a msgpack-signed one.
+    ///
+    /// This is what [`Action::prehash`] hashes for a user-signed action. It is public for
+    /// signers that need the typed fields rather than a digest, such as a hardware wallet.
+    /// It is also the single place that classifies every action, for both ordinary and
+    /// multisig signing.
+    pub fn user_signed_typed_data(&self, chain: Chain) -> Option<TypedData> {
         let typed_data = match self {
             // Actions signed over the msgpack hash wrapped in `Agent`.
             Action::Order(_)
