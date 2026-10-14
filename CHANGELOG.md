@@ -6,9 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `client` feature, on by default, for the HTTP, WebSocket and HyperEVM clients. With `default-features = false` the crate only models, encodes and signs actions, without reqwest, tokio or the alloy provider stack.
+
 ### Fixed
 
 - Updated hypecli's SDK dependency requirement to 0.3.0 so release builds resolve the local SDK.
+- User-signed actions and multisig envelopes are signed under the EIP-712 domain their own `signatureChainId` names, as the exchange verifies them. Previously the domain always followed the network, so an action carrying the Python SDK's `0x66eee` on Mainnet got a signature that recovered to another address.
+- `convertToMultiSigUser` writes its signers string as the Python SDK does: sorted lowercase addresses with `json.dumps` spacing.
 
 ## [v0.3.0] - 2026-10-12
 

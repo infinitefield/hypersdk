@@ -429,7 +429,9 @@ impl Action {
             };
 
             Ok(Some(get_typed_data::<solidity::SendMultiSig>(
-                &envelope, chain, None,
+                &envelope,
+                chain,
+                Some(&inner.signature_chain_id),
             )))
         } else {
             Ok(self.user_signed_typed_data(chain))
@@ -3139,6 +3141,87 @@ mod tests {
             failures.is_empty(),
             "the exchange does not parse these action shapes, or hashes them differently \
              from how they were signed:\n{}",
+            failures.join("\n")
+        );
+    }
+
+    /// User-signed actions whose `signatureChainId` differs from the network default, as the
+    /// Python SDK signs them on Mainnet. Each is signed with a throwaway key so it cannot take
+    /// effect; the reply has to name that key's address, which shows the exchange recovered
+    /// the signature under the requested domain.
+    ///
+    /// ```bash
+    /// cargo test --lib python_default_chain_id_is_accepted -- --ignored --nocapture
+    /// ```
+    #[cfg(feature = "client")]
+    #[tokio::test]
+    #[ignore = "hits mainnet; run manually when auditing the SDK against the API"]
+    async fn python_default_chain_id_is_accepted() {
+        use alloy::signers::local::PrivateKeySigner;
+        use rust_decimal::dec;
+
+        use crate::hypercore::{self, ARBITRUM_TESTNET_CHAIN_ID};
+
+        let signer = PrivateKeySigner::random();
+        let client = hypercore::mainnet();
+        let chain = Chain::Mainnet;
+        let base = chrono::Utc::now().timestamp_millis() as u64;
+        let others = [PrivateKeySigner::random(), PrivateKeySigner::random()];
+        let cases: Vec<(&str, Action)> = vec![
+            (
+                "convertToMultiSigUser",
+                Action::ConvertToMultiSigUser(ConvertToMultiSigUser {
+                    signature_chain_id: ARBITRUM_TESTNET_CHAIN_ID.into(),
+                    hyperliquid_chain: chain,
+                    signers: SignersConfig {
+                        authorized_users: vec![
+                            others[0].address(),
+                            signer.address(),
+                            others[1].address(),
+                        ],
+                        threshold: 2,
+                    },
+                    nonce: base,
+                }),
+            ),
+            (
+                "usdSend",
+                Action::UsdSend(UsdSendAction {
+                    signature_chain_id: ARBITRUM_TESTNET_CHAIN_ID.into(),
+                    hyperliquid_chain: chain,
+                    destination: others[0].address(),
+                    amount: dec!(1),
+                    time: base + 1,
+                }),
+            ),
+        ];
+
+        let mut failures = Vec::new();
+        for (label, action) in cases {
+            let nonce = match &action {
+                Action::ConvertToMultiSigUser(inner) => inner.nonce,
+                Action::UsdSend(inner) => inner.time,
+                _ => unreachable!(),
+            };
+            let req = action.sign_sync(&signer, nonce, None, None, chain).unwrap();
+            let out = match client.send(req).await {
+                Ok(resp) => format!("{resp:?}"),
+                Err(err) => format!("ERR {err}"),
+            };
+            println!(
+                "{label:34} => {}",
+                out.chars().take(120).collect::<String>()
+            );
+            let own = format!("{:#x}", signer.address());
+            if !out.to_lowercase().contains(&own) {
+                failures.push(format!("{label}: reply does not name the signer: {out}"));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+        }
+
+        assert!(
+            failures.is_empty(),
+            "the exchange did not recover these signatures under the requested domain:\n{}",
             failures.join("\n")
         );
     }

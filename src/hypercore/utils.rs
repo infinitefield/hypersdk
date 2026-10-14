@@ -7,7 +7,7 @@
 //! - Solidity struct definitions for EIP-712 signing
 
 use alloy::{
-    dyn_abi::{Eip712Types, PropertyDef, Resolver, TypedData},
+    dyn_abi::{Eip712Domain, Eip712Types, PropertyDef, Resolver, TypedData},
     primitives::{Address, B256, U256, keccak256},
     sol_types::SolStruct,
 };
@@ -282,6 +282,9 @@ where
 /// Serializes SignersConfig as a JSON string, or "null" if authorized_users is empty.
 ///
 /// When converting a multisig user back to a normal user, the signers field should be "null".
+///
+/// The string is signed as-is, so it is written exactly as the Python SDK writes it:
+/// sorted lowercase addresses and `json.dumps` spacing.
 pub(super) fn serialize_signers_as_json<S>(
     value: &super::types::api::SignersConfig,
     serializer: S,
@@ -292,8 +295,17 @@ where
     if value.authorized_users.is_empty() {
         serializer.serialize_str("null")
     } else {
-        let json = serde_json::to_string(value).map_err(serde::ser::Error::custom)?;
-        serializer.serialize_str(&json)
+        let mut users: Vec<_> = value
+            .authorized_users
+            .iter()
+            .map(|user| format!("\"{user:#x}\""))
+            .collect();
+        users.sort();
+        serializer.serialize_str(&format!(
+            "{{\"authorizedUsers\": [{}], \"threshold\": {}}}",
+            users.join(", "),
+            value.threshold
+        ))
     }
 }
 
@@ -370,7 +382,7 @@ pub(super) fn rmp_hash<T: Serialize>(
 /// # Arguments
 ///
 /// * `msg` - The message to create typed data for
-/// * `multi_sig` - Optional multisig information (multisig user address, outer signer address)
+/// * `signature_chain_id` - The request's `signatureChainId`, when `msg` does not carry it
 ///
 /// # Returns
 ///
@@ -382,7 +394,7 @@ pub(super) fn rmp_hash<T: Serialize>(
 pub(super) fn get_typed_data<T: SolStruct>(
     msg: &impl Serialize,
     chain: Chain,
-    multi_sig: Option<(Address, Address)>,
+    signature_chain_id: Option<&str>,
 ) -> TypedData {
     let mut resolver = Resolver::from_struct::<T>();
     resolver
@@ -392,22 +404,36 @@ pub(super) fn get_typed_data<T: SolStruct>(
     let mut types = Eip712Types::from(&resolver);
     let agent_type = types.remove(T::NAME).unwrap();
 
-    let mut msg = serde_json::to_value(msg).unwrap();
-    if let Some((multi_sig_address, lead)) = multi_sig {
-        let obj = msg.as_object_mut().unwrap();
-        obj.insert(
-            "payloadMultiSigUser".into(),
-            multi_sig_address.to_string().to_lowercase().into(),
-        );
-        obj.insert("outerSigner".into(), lead.to_string().to_lowercase().into());
-    }
+    let msg = serde_json::to_value(msg).unwrap();
+    let domain = signature_domain(
+        signature_chain_id.or_else(|| msg["signatureChainId"].as_str()),
+        chain,
+    );
 
     types.insert(format!("{HYPERLIQUID_EIP_PREFIX}{}", T::NAME), agent_type);
 
     TypedData {
-        domain: chain.domain(),
+        domain,
         resolver: Resolver::from(types),
         primary_type: format!("{HYPERLIQUID_EIP_PREFIX}{}", T::NAME),
         message: msg,
     }
+}
+
+/// EIP-712 domain for a user-signed action or a multisig envelope.
+///
+/// Hyperliquid verifies against the chain ID the request names in `signatureChainId`,
+/// which does not have to follow the network: the Python SDK signs with `0x66eee` on
+/// Mainnet. Without a chain ID, or with one the exchange could not parse either, this
+/// falls back to the network's default domain.
+pub(super) fn signature_domain(signature_chain_id: Option<&str>, chain: Chain) -> Eip712Domain {
+    let default = chain.domain();
+    signature_chain_id
+        .and_then(|id| id.strip_prefix("0x"))
+        .and_then(|hex| u64::from_str_radix(hex, 16).ok())
+        .map(|id| Eip712Domain {
+            chain_id: Some(U256::from(id)),
+            ..default.clone()
+        })
+        .unwrap_or(default)
 }

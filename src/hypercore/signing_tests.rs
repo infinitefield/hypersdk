@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 
 use super::{
     Address, Chain,
-    api::{Action, MultiSigPayload},
+    api::{Action, ConvertToMultiSigUser, MultiSigPayload},
     signing::multisig_collect_signatures_with_context,
 };
 
@@ -203,4 +203,62 @@ fn all_user_signed_actions_get_multisig_fields() {
             .typed_data_multisig(multisig, signer.address(), Chain::Mainnet)
             .is_none()
     );
+}
+
+#[test]
+fn python_default_chain_id_signatures_match_python_sdk() {
+    let fixtures = fixtures();
+    let signer = signer();
+    for case in fixtures["pythonDefaultChainId"].as_array().unwrap() {
+        let chain: Chain = case["chain"].as_str().unwrap().parse().unwrap();
+        let nonce = case["nonce"].as_u64().unwrap();
+
+        // Built from unsorted, checksummed signers, the string still matches Python's.
+        let mut convert: ConvertToMultiSigUser =
+            serde_json::from_value(case["convert"].clone()).unwrap();
+        convert.signers.authorized_users.reverse();
+        assert_eq!(
+            serde_json::to_value(&convert).unwrap()["signers"],
+            case["convert"]["signers"]
+        );
+        let convert = Action::ConvertToMultiSigUser(convert);
+        let signed = convert
+            .sign_sync(&signer, nonce, None, None, chain)
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(signed.signature).unwrap(),
+            case["convertSignature"]
+        );
+
+        let Action::MultiSig(multi) = serde_json::from_value(case["multiSig"].clone()).unwrap()
+        else {
+            panic!("fixture is a multiSig action");
+        };
+        let participant = multi.payload.sign_sync(&signer, nonce, chain).unwrap();
+        assert_eq!(
+            serde_json::to_value(participant).unwrap(),
+            case["multiSig"]["signatures"][0]
+        );
+        let request = super::signing::multisig_lead_msg_sync(
+            &signer,
+            multi.clone(),
+            nonce,
+            None,
+            None,
+            chain,
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(request.signature).unwrap(),
+            case["outerSignature"]
+        );
+        assert_eq!(request.recover(chain).unwrap(), signer.address());
+        let outer = Action::MultiSig(multi)
+            .sign_sync(&signer, nonce, None, None, chain)
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(outer.signature).unwrap(),
+            case["outerSignature"]
+        );
+    }
 }

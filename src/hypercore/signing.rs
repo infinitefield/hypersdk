@@ -82,7 +82,11 @@ pub fn multisig_lead_msg_sync<S: SignerSync>(
         nonce,
     };
 
-    let typed_data = get_typed_data::<solidity::SendMultiSig>(&envelope, chain, None);
+    let typed_data = get_typed_data::<solidity::SendMultiSig>(
+        &envelope,
+        chain,
+        Some(&action.signature_chain_id),
+    );
     let sig = signer.sign_dynamic_typed_data_sync(&typed_data)?.into();
 
     Ok(crate::hypercore::api::ActionRequest {
@@ -122,7 +126,11 @@ pub async fn multisig_lead_msg<S: Signer + Send + Sync>(
         nonce,
     };
 
-    let typed_data = get_typed_data::<solidity::SendMultiSig>(&envelope, chain, None);
+    let typed_data = get_typed_data::<solidity::SendMultiSig>(
+        &envelope,
+        chain,
+        Some(&action.signature_chain_id),
+    );
     let sig = signer.sign_dynamic_typed_data(&typed_data).await?.into();
 
     Ok(crate::hypercore::api::ActionRequest {

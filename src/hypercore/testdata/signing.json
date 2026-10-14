@@ -225,5 +225,95 @@
       "expiresAfter": 1700000010000,
       "prehash": "0xb2f34c6283c7a4ca5fb69d796a9345a9b5bf4437cf2c72ba939b23a8704faad0"
     }
+  ],
+  "pythonDefaultChainId": [
+    {
+      "chain": "Mainnet",
+      "nonce": 1700000000000,
+      "convert": {
+        "type": "convertToMultiSigUser",
+        "signers": "{\"authorizedUsers\": [\"0x1111111111111111111111111111111111111111\", \"0x2222222222222222222222222222222222222222\", \"0x7e5f4552091a69125d5dfcb7b8c2659029395bdf\"], \"threshold\": 2}",
+        "nonce": 1700000000000,
+        "signatureChainId": "0x66eee",
+        "hyperliquidChain": "Mainnet"
+      },
+      "convertSignature": {
+        "r": "0xb1863f538a5f56420f048342956ebacce5d17fd63e815dc767981457dbeb5263",
+        "s": "0x7da37c286f1c33325af0be3068614e6d89e6a89cb9d013e7236102dd082f2087",
+        "v": 28
+      },
+      "multiSig": {
+        "type": "multiSig",
+        "signatureChainId": "0x66eee",
+        "signatures": [
+          {
+            "r": "0x704e538db8e3f3b25f54bcdcbd0388e8d05ad8e26b5cbb29baf1702453cac4c6",
+            "s": "0x22ca44e70a88aa51f2a734aea3bad1ea662cbe4d8b43440f817df48217709daa",
+            "v": 28
+          }
+        ],
+        "payload": {
+          "multiSigUser": "0x1111111111111111111111111111111111111111",
+          "outerSigner": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+          "action": {
+            "type": "usdSend",
+            "signatureChainId": "0x66eee",
+            "hyperliquidChain": "Mainnet",
+            "destination": "0x2222222222222222222222222222222222222222",
+            "amount": "12.50",
+            "time": 1700000000000
+          }
+        }
+      },
+      "outerSignature": {
+        "r": "0x9c1f9d16304eec5f4b15370b244e481bd764448f2c32cbeab34e9a5d98fd6f46",
+        "s": "0x3c2b7bc64cb55589efef150b2af3f3aa73aedcb667dcfa7d635fa18be53fdcad",
+        "v": 27
+      }
+    },
+    {
+      "chain": "Testnet",
+      "nonce": 1700000000000,
+      "convert": {
+        "type": "convertToMultiSigUser",
+        "signers": "{\"authorizedUsers\": [\"0x1111111111111111111111111111111111111111\", \"0x2222222222222222222222222222222222222222\", \"0x7e5f4552091a69125d5dfcb7b8c2659029395bdf\"], \"threshold\": 2}",
+        "nonce": 1700000000000,
+        "signatureChainId": "0x66eee",
+        "hyperliquidChain": "Testnet"
+      },
+      "convertSignature": {
+        "r": "0x56f64b20f9f3c2998c58450b6b5608aaa66fea8c1c33072aa43a2139e3bc82f0",
+        "s": "0x3422550da0df089ddf9a907b5e6cf4a13e44fabef8c9e94d3637fe59cdac795f",
+        "v": 27
+      },
+      "multiSig": {
+        "type": "multiSig",
+        "signatureChainId": "0x66eee",
+        "signatures": [
+          {
+            "r": "0x23ebd28bc74483891ee52eaff8e50b2771a9d1462b1148656ac7bb8b6d83a0bd",
+            "s": "0x68b9d0e637381d3c7a9c66deb5942c641aa4c689b5d2b21778d420eae0f33eb1",
+            "v": 27
+          }
+        ],
+        "payload": {
+          "multiSigUser": "0x1111111111111111111111111111111111111111",
+          "outerSigner": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+          "action": {
+            "type": "usdSend",
+            "signatureChainId": "0x66eee",
+            "hyperliquidChain": "Testnet",
+            "destination": "0x2222222222222222222222222222222222222222",
+            "amount": "12.50",
+            "time": 1700000000000
+          }
+        }
+      },
+      "outerSignature": {
+        "r": "0x9e4847e58018c88cd36a794e82f357718ec438c84090dde21c679e4b87c31b6",
+        "s": "0xcfdcc84549cb71100771f1870e61be2ae47337c37f6424e8074cc62e34ce34d",
+        "v": 28
+      }
+    }
   ]
 }
