@@ -680,6 +680,7 @@ pub enum Incoming {
         #[serde(default)]
         is_snapshot: bool,
         user: Address,
+        #[serde(alias = "nonFundingLedgerUpdates")]
         updates: Vec<serde_json::Value>,
     },
     /// Asset contexts across all DEXs
