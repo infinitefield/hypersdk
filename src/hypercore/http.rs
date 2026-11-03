@@ -1919,8 +1919,12 @@ impl Client {
     /// Query whether HIP-3 DEX abstraction is enabled for a user.
     ///
     /// Returns `None` when the user has never set it, which the API reports as `null`.
+    /// The endpoint currently returns HTTP 422 on mainnet and testnet.
     ///
     /// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#query-a-users-hip-3-dex-abstraction-state>
+    #[deprecated(
+        note = "The endpoint currently returns HTTP 422; see abstraction_mode for the account abstraction mode"
+    )]
     pub async fn user_dex_abstraction(&self, user: Address) -> Result<Option<bool>> {
         let req = InfoRequest::UserDexAbstraction { user };
         self.send_info_request("user_dex_abstraction", &req).await
@@ -2483,6 +2487,8 @@ impl Client {
     }
 
     /// Returns the accounts currently eligible for liquidation.
+    /// The endpoint currently returns HTTP 422 on mainnet and testnet.
+    #[deprecated(note = "The endpoint currently returns HTTP 422 on mainnet and testnet")]
     pub async fn liquidatable(&self) -> Result<serde_json::Value> {
         self.send_info_request("liquidatable", &InfoRequest::Liquidatable)
             .await

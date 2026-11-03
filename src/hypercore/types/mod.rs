@@ -4417,6 +4417,7 @@ pub(super) enum InfoRequest {
         user: Address,
     },
     /// Query HIP-3 DEX abstraction state for a user.
+    /// This request currently returns HTTP 422 on mainnet and testnet.
     UserDexAbstraction {
         user: Address,
     },
@@ -4563,7 +4564,7 @@ pub(super) enum InfoRequest {
     // ----------------------------------------------------------------
     // Undocumented info requests.
     //
-    // The gitbook does not cover any of these, but mainnet answers all of them. Names are
+    // The gitbook does not cover these. Names are
     // cross-checked against the nktkas TypeScript SDK and probed live by
     // `info_requests_are_still_answered`.
     // ----------------------------------------------------------------
@@ -4584,6 +4585,7 @@ pub(super) enum InfoRequest {
         user: Address,
     },
     /// Accounts currently eligible for liquidation.
+    /// This request currently returns HTTP 422 on mainnet and testnet.
     Liquidatable,
     /// One margin table by id, giving its tiers and max leverage.
     MarginTable {
