@@ -119,6 +119,7 @@
 use std::{
     collections::HashSet,
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll, ready},
     time::Duration,
 };
@@ -129,7 +130,7 @@ use tokio::{
     sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
     time::{interval, sleep, timeout},
 };
-use tokio_util::sync::CancellationToken;
+use tokio_util::sync::{CancellationToken, DropGuard};
 use url::Url;
 use yawc::{Frame, OpCode, Options, TcpWebSocket};
 
@@ -249,13 +250,7 @@ enum Command {
 ///
 /// When all clones are dropped, the [`CancellationToken`] is cancelled and
 /// the background reconnect loop exits gracefully.
-#[derive(Clone)]
-struct ConnectionGuard {
-    /// Held solely to keep the token alive. When all guards drop, the token
-    /// is cancelled and the background task exits.
-    #[allow(dead_code)]
-    token: CancellationToken,
-}
+type ConnectionGuard = Arc<DropGuard>;
 
 /// WebSocket event representing either a connection state change or a data message.
 ///
@@ -487,7 +482,7 @@ impl Connection {
         Self {
             rx,
             tx: stx,
-            guard: ConnectionGuard { token },
+            guard: Arc::new(token.drop_guard()),
         }
     }
 
@@ -787,4 +782,67 @@ async fn connection(
     }
 
     log::debug!("WebSocket background task shutting down");
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+        time::{Duration, timeout},
+    };
+
+    use super::Connection;
+
+    async fn refuse_handshake(listener: &TcpListener) {
+        let (mut socket, _) = timeout(Duration::from_secs(3), listener.accept())
+            .await
+            .expect("client did not connect")
+            .unwrap();
+        let mut method = [0; 3];
+        socket.read_exact(&mut method).await.unwrap();
+        assert_eq!(&method, b"GET");
+        let unavailable = b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n";
+        socket.write_all(unavailable).await.unwrap();
+    }
+
+    async fn assert_no_retries(listener: &TcpListener) {
+        let reconnect = timeout(Duration::from_secs(3), listener.accept()).await;
+        assert!(
+            reconnect.is_err(),
+            "closed WebSocket made another TCP connection during its reconnect loop"
+        );
+    }
+
+    // Real TCP/HTTP endpoint: reproduces an upstream proxy refusing the handshake.
+    #[tokio::test]
+    async fn closing_during_an_outage_stops_reconnecting() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}/ws", listener.local_addr().unwrap())
+            .parse()
+            .unwrap();
+        let ws = Connection::new(url);
+        refuse_handshake(&listener).await;
+        ws.close();
+        assert_no_retries(&listener).await;
+    }
+
+    // The fix must cancel only when the LAST shared owner is dropped.
+    #[tokio::test]
+    async fn split_owners_keep_retrying_until_the_last_owner_drops() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}/ws", listener.local_addr().unwrap())
+            .parse()
+            .unwrap();
+        let ws = Connection::new(url);
+        let (handle, stream) = ws.split();
+        let clone = handle.clone();
+        refuse_handshake(&listener).await;
+        drop(handle);
+        refuse_handshake(&listener).await; // a surviving owner must still reconnect
+        drop(clone);
+        refuse_handshake(&listener).await; // the event stream is also a documented owner
+        drop(stream);
+        assert_no_retries(&listener).await;
+    }
 }
