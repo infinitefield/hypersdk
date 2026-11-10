@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `hypercore::spot_tokens`, `perp_dexes`, `perp_markets` and `outcome_meta` check the HTTP status before decoding, so a rate-limited call returns an `ApiError` with the status instead of a JSON decode error.
 - Updated hypecli's SDK dependency requirement to 0.3.0 so release builds resolve the local SDK.
 
 ## [v0.3.0] - 2026-10-12
