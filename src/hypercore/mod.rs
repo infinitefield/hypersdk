@@ -1689,6 +1689,23 @@ impl std::str::FromStr for RecurringEvent {
     }
 }
 
+/// Decodes an `/info` reply, returning an [`ApiError`] for a non-success status.
+#[cfg(feature = "http")]
+async fn decode_info<T>(resp: reqwest::Response, label: &str) -> anyhow::Result<T>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let status = resp.status();
+    let bytes = resp.bytes().await?;
+    let text = String::from_utf8_lossy(&bytes);
+
+    if !status.is_success() {
+        return Err(ApiError(format!("[{label}] HTTP {status} body={text}")).into());
+    }
+
+    serde_json::from_str(&text).with_context(|| format!("[{label}] body={text}"))
+}
+
 #[cfg(feature = "http")]
 async fn raw_spot_markets(
     core_url: impl IntoUrl,
@@ -1697,7 +1714,7 @@ async fn raw_spot_markets(
     let mut url = core_url.into_url()?;
     url.set_path("/info");
     let resp = client.post(url).json(&InfoRequest::SpotMeta).send().await?;
-    Ok(resp.json().await?)
+    decode_info(resp, "spotMeta").await
 }
 
 /// Fetches all available spot tokens from HyperCore.
@@ -1843,7 +1860,7 @@ pub async fn perp_dexes(
         .await
         .context("info")?;
 
-    let dexes: Vec<Option<PerpDex>> = resp.json().await?;
+    let dexes: Vec<Option<PerpDex>> = decode_info(resp, "perpDexs").await?;
     let dex_list = dexes
         .into_iter()
         .enumerate()
@@ -1897,7 +1914,7 @@ pub async fn perp_markets(
         .send()
         .await
         .context("meta")?;
-    let data: PerpTokens = resp.json().await?;
+    let data: PerpTokens = decode_info(resp, "meta").await?;
     let collateral = spot
         .tokens
         .get(data.collateral_token)
@@ -1948,7 +1965,7 @@ pub async fn outcome_meta(
         .await
         .context("info")?;
 
-    let raw: RawOutcomeMeta = resp.json().await?;
+    let raw: RawOutcomeMeta = decode_info(resp, "outcomeMeta").await?;
 
     Ok(OutcomeMeta {
         outcomes: raw.outcomes.into_iter().map(OutcomeInfo::from).collect(),
@@ -2223,6 +2240,89 @@ mod tests {
     use super::*;
     #[cfg(feature = "http")]
     use crate::hypercore;
+
+    #[cfg(feature = "http")]
+    async fn serve(status: &'static str, content_type: &'static str, body: &'static str) -> Url {
+        use tokio::{
+            io::{AsyncReadExt, AsyncWriteExt},
+            net::TcpListener,
+        };
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 4096];
+                    let _ = socket.read(&mut buf).await;
+                    let reply = format!(
+                        "HTTP/1.1 {status}\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = socket.write_all(reply.as_bytes()).await;
+                });
+            }
+        });
+        format!("http://{addr}").parse().unwrap()
+    }
+
+    #[cfg(feature = "http")]
+    #[tokio::test]
+    async fn metadata_reads_report_a_rate_limit_as_its_status() {
+        let limited = [
+            ("429 Too Many Requests", "application/json", "null"),
+            (
+                "429 Too Many Requests",
+                "text/html",
+                "<html><body>429 Too Many Requests</body></html>",
+            ),
+        ];
+        for (status, content_type, body) in limited {
+            let url = serve(status, content_type, body).await;
+            let client = reqwest::Client::new();
+
+            let errors = [
+                (
+                    "spotMeta",
+                    spot_tokens(url.clone(), client.clone()).await.unwrap_err(),
+                ),
+                (
+                    "perpDexs",
+                    perp_dexes(url.clone(), client.clone()).await.unwrap_err(),
+                ),
+                (
+                    "spotMeta",
+                    perp_markets(url.clone(), client.clone(), None)
+                        .await
+                        .unwrap_err(),
+                ),
+                (
+                    "outcomeMeta",
+                    outcome_meta(url.clone(), client.clone()).await.unwrap_err(),
+                ),
+            ];
+            for (label, err) in errors {
+                let text = format!("{err:#}");
+                assert!(
+                    text.contains(&format!("[{label}] HTTP 429")) && text.contains(body),
+                    "{label}: {text}"
+                );
+                assert!(err.downcast_ref::<ApiError>().is_some(), "{label}: {text}");
+            }
+        }
+    }
+
+    #[cfg(feature = "http")]
+    #[tokio::test]
+    async fn metadata_reads_name_the_request_when_the_body_does_not_decode() {
+        let url = serve("200 OK", "application/json", "null").await;
+        let err = perp_dexes(url, reqwest::Client::new()).await.unwrap_err();
+        assert!(
+            format!("{err:#}").contains("[perpDexs] body=null"),
+            "{err:#}"
+        );
+    }
 
     #[cfg(feature = "http")]
     #[tokio::test]
