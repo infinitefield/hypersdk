@@ -1,5 +1,7 @@
 //! Trezor signing and address discovery. Only address-to-path hints are persisted.
 
+mod eip712;
+
 use std::{env::home_dir, fmt, fs, io::Write, path::PathBuf};
 
 use alloy::{
@@ -72,7 +74,7 @@ fn path_for(index: u32) -> anyhow::Result<DerivationPath> {
 
 fn address_for(xpub: &XPub, index: u32) -> anyhow::Result<Address> {
     let child = xpub.derive_child(ChildNumber::new(index, false)?)?;
-    let key = child.public_key().to_encoded_point(false);
+    let key = child.public_key().to_sec1_point(false);
     Ok(Address::from_raw_public_key(&key.as_bytes()[1..]))
 }
 
@@ -254,19 +256,12 @@ impl Signer for TrezorTypedDataSigner {
     }
 
     async fn sign_dynamic_typed_data(&self, data: &TypedData) -> alloy::signers::Result<Signature> {
-        let types = typed_data_types(data)?;
-        let domain = typed_data_domain(data)?;
+        let stream = eip712::TypedDataStream::new(data).map_err(alloy::signers::Error::other)?;
         let mut client = self.client().map_err(alloy::signers::Error::other)?;
-        let signature = client
-            .ethereum_sign_typed_data(
-                self.path.iter().map(u32::from).collect(),
-                &data.primary_type,
-                &types,
-                &domain,
-                &data.message,
-            )
+        let signature = stream
+            .sign(&mut client, self.path.iter().map(u32::from).collect())
             .map_err(alloy::signers::Error::other)?;
-        verify_typed_data_signature(signature_from_trezor(signature)?, data, self.address)
+        verify_typed_data_signature(signature, data, self.address)
     }
 
     fn address(&self) -> Address {
@@ -278,16 +273,6 @@ impl Signer for TrezorTypedDataSigner {
     fn set_chain_id(&mut self, chain_id: Option<ChainId>) {
         self.chain_id = chain_id;
     }
-}
-
-fn typed_data_domain(data: &TypedData) -> alloy::signers::Result<serde_json::Value> {
-    let mut domain = serde_json::to_value(&data.domain).map_err(alloy::signers::Error::other)?;
-    if let Some(chain_id) = data.domain.chain_id {
-        // trezor-client decodes hex integers as bytes. Alloy's quantity encoding
-        // can have odd length (1337 -> 0x539), which that decoder turns into zero.
-        domain["chainId"] = format!("0x{}", hex::encode(chain_id.to_be_bytes::<32>())).into();
-    }
-    Ok(domain)
 }
 
 fn verify_typed_data_signature(
@@ -303,24 +288,6 @@ fn verify_typed_data_signature(
         )));
     }
     Ok(signature)
-}
-
-fn typed_data_types(
-    data: &TypedData,
-) -> alloy::signers::Result<serde_json::Map<String, serde_json::Value>> {
-    // Alloy hashes the domain separately, so SDK payloads can omit its type.
-    // Trezor streams its fields and needs the definition matching that domain.
-    let mut resolver = data.resolver.clone();
-    resolver
-        .ingest_string(data.domain.encode_type())
-        .map_err(alloy::signers::Error::other)?;
-    let types = serde_json::to_value(&resolver).map_err(alloy::signers::Error::other)?;
-    match types {
-        serde_json::Value::Object(types) => Ok(types),
-        _ => Err(alloy::signers::Error::other(
-            "invalid EIP-712 type definitions",
-        )),
-    }
 }
 
 impl TrezorTypedDataSigner {
@@ -358,165 +325,19 @@ mod tests {
     use hypersdk::hypercore::PrivateKeySigner;
 
     #[tokio::test]
-    async fn trezor_domain_encoding_preserves_l1_chain_id_and_signature() {
-        use serde_json::json;
-
+    async fn rejects_a_signature_for_different_typed_data() {
         let signer = PrivateKeySigner::random();
-        for chain_id in [
-            U256::from(1337),
-            U256::from(42161),
-            U256::from(421614),
-            U256::MAX,
-        ] {
-            let data: TypedData = serde_json::from_value(json!({
-                "types": {
-                    "Agent": [
-                        {"name": "source", "type": "string"},
-                        {"name": "connectionId", "type": "bytes32"}
-                    ]
-                },
-                "primaryType": "Agent",
-                "domain": {
-                    "name": "Exchange", "version": "1", "chainId": chain_id,
-                    "verifyingContract": Address::ZERO
-                },
-                "message": {"source": "a", "connectionId": B256::repeat_byte(42)}
-            }))
-            .unwrap();
-
-            let domain = typed_data_domain(&data).unwrap();
-            // Use the same byte-oriented hex decoding as trezor-client.
-            let encoded = domain["chainId"]
-                .as_str()
-                .unwrap()
-                .strip_prefix("0x")
-                .unwrap();
-            let bytes = hex::decode(encoded).unwrap();
-            assert_eq!(U256::from_be_slice(&bytes), chain_id);
-            let streamed = TypedData {
-                domain: serde_json::from_value(domain).unwrap(),
-                ..data.clone()
-            };
-            assert_eq!(
-                streamed.eip712_signing_hash().unwrap(),
-                data.eip712_signing_hash().unwrap()
-            );
-            let signature = signer.sign_dynamic_typed_data(&streamed).await.unwrap();
-            verify_typed_data_signature(signature, &data, signer.address()).unwrap();
-
-            if chain_id == U256::from(1337) {
-                let raw = serde_json::to_value(&data.domain).unwrap();
-                assert_eq!(raw["chainId"], "0x539");
-                // Reproduce the old client's silent fallback to a zero chain ID.
-                let bytes = hex::decode("539").unwrap_or_default();
-                let mut wrong_domain = data.domain.clone();
-                wrong_domain.chain_id = Some(U256::from_be_slice(&bytes));
-                let wrong = TypedData {
-                    domain: wrong_domain,
-                    ..data.clone()
-                };
-                let signature = signer.sign_dynamic_typed_data(&wrong).await.unwrap();
-                assert!(verify_typed_data_signature(signature, &data, signer.address()).is_err());
-            }
-        }
-    }
-
-    #[test]
-    fn typed_data_includes_domain_definition_without_changing_hash() {
-        use serde_json::json;
-
-        // Like the SDK's manually built typed data, this omits EIP712Domain.
-        let data: TypedData = serde_json::from_value(json!({
-            "types": {
-                "HyperliquidTransaction:SendMultiSig": [
-                    {"name": "hyperliquidChain", "type": "string"},
-                    {"name": "multiSigActionHash", "type": "bytes32"},
-                    {"name": "nonce", "type": "uint64"}
-                ]
-            },
-            "primaryType": "HyperliquidTransaction:SendMultiSig",
-            "domain": {
-                "name": "HyperliquidSignTransaction",
-                "version": "1",
-                "chainId": 42161,
-                "verifyingContract": Address::ZERO
-            },
-            "message": {
-                "hyperliquidChain": "Mainnet",
-                "multiSigActionHash": B256::ZERO,
-                "nonce": 123
-            }
+        let mut data: TypedData = serde_json::from_value(serde_json::json!({
+            "types": {"Message": [{"name": "value", "type": "bool"}]},
+            "primaryType": "Message",
+            "domain": {"chainId": 1337},
+            "message": {"value": true}
         }))
         .unwrap();
-        let original_types = serde_json::to_value(&data.resolver).unwrap();
-        let types = typed_data_types(&data).unwrap();
-        assert_eq!(
-            types["EIP712Domain"],
-            json!([
-                {"name": "name", "type": "string"},
-                {"name": "version", "type": "string"},
-                {"name": "chainId", "type": "uint256"},
-                {"name": "verifyingContract", "type": "address"}
-            ])
-        );
-        assert_eq!(
-            types[&data.primary_type],
-            original_types[&data.primary_type]
-        );
-        assert_eq!(
-            serde_json::to_value(&data.resolver).unwrap(),
-            original_types
-        );
-
-        // Hash the streamed domain as an ordinary struct, as Trezor does.
-        let streamed_domain = TypedData {
-            domain: Default::default(),
-            resolver: serde_json::from_value(json!(types)).unwrap(),
-            primary_type: "EIP712Domain".into(),
-            message: serde_json::to_value(&data.domain).unwrap(),
-        };
-        assert_eq!(
-            streamed_domain.hash_struct().unwrap(),
-            data.domain.separator()
-        );
-        let normalized = TypedData {
-            resolver: streamed_domain.resolver,
-            ..data.clone()
-        };
-        assert_eq!(
-            normalized.eip712_signing_hash().unwrap(),
-            data.eip712_signing_hash().unwrap()
-        );
-        assert_eq!(typed_data_types(&normalized).unwrap(), types);
-    }
-
-    #[test]
-    fn typed_data_domain_definition_uses_only_present_fields() {
-        use serde_json::json;
-
-        for (domain, expected) in [
-            (json!({}), json!([])),
-            (
-                json!({"name": "Test", "salt": B256::ZERO}),
-                json!([
-                    {"name": "name", "type": "string"},
-                    {"name": "salt", "type": "bytes32"}
-                ]),
-            ),
-        ] {
-            let data: TypedData = serde_json::from_value(json!({
-                "types": {
-                    "EIP712Domain": [{"name": "chainId", "type": "uint256"}],
-                    "Message": [{"name": "value", "type": "bool"}]
-                },
-                "primaryType": "Message",
-                "domain": domain,
-                "message": {"value": true}
-            }))
-            .unwrap();
-            let types = typed_data_types(&data).unwrap();
-            assert_eq!(types["EIP712Domain"], expected);
-        }
+        let signature = signer.sign_dynamic_typed_data(&data).await.unwrap();
+        verify_typed_data_signature(signature, &data, signer.address()).unwrap();
+        data.domain.chain_id = Some(U256::ZERO);
+        assert!(verify_typed_data_signature(signature, &data, signer.address()).is_err());
     }
 
     #[derive(Default)]
@@ -528,7 +349,7 @@ mod tests {
     }
 
     fn expected_address(path: &DerivationPath) -> Address {
-        let key = XPrv::derive_from_path([7; 32], path).unwrap();
+        let key = XPrv::derive_from_path(&[7; 32], path).unwrap();
         PrivateKeySigner::from_bytes(&B256::from_slice(&key.to_bytes()))
             .unwrap()
             .address()
@@ -545,7 +366,7 @@ mod tests {
             self.public_key_requests += 1;
             anyhow::ensure!(!self.cancel, "user cancelled");
             let seed = if self.wrong_xpub { [8; 32] } else { [7; 32] };
-            Ok(XPrv::derive_from_path(seed, &PARENT_PATH.parse()?)?.public_key())
+            Ok(XPrv::derive_from_path(&seed, &PARENT_PATH.parse()?)?.public_key())
         }
     }
 

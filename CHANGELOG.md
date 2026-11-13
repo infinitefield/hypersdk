@@ -6,9 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v0.3.1] - 2026-11-13
+
+### Changed
+
+- Updated dependencies and released hypecli 0.1.8 against SDK 0.3.1.
+- HTTP, WebSocket, and HyperEVM integrations can be selected through Cargo features.
+- Deprecated unavailable info endpoints.
+
 ### Fixed
 
-- Updated hypecli's SDK dependency requirement to 0.3.0 so release builds resolve the local SDK.
+- Trezor EIP-712 signing uses the published client without a Git patch, with checked value encoding and signature verification.
+- WebSocket reconnect tasks stop when their last owner is dropped.
+- Parse default account abstraction mode and non-funding ledger updates.
 
 ## [v0.3.0] - 2026-10-12
 
