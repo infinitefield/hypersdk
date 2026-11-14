@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- WebSocket subscription `l2` through `Subscription::L2` and `Incoming::L2`, plus `L2Book::apply` to apply its updates.
+
 ### Changed
 
 - **Breaking**: `Liquidation::liquidated_user` is now `Option<Address>`.

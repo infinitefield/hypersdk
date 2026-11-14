@@ -21,6 +21,7 @@
 //! - [`Fill`]: User order fills
 //! - [`OrderUpdate`]: Order status changes
 //! - [`L2Book`]: Order book snapshots and deltas
+//! - [`L2`]: Order book snapshot, then updates
 //! - [`Bbo`]: Best bid and offer updates
 //! - [`UserEvent`]: Funding, liquidation, and non-user-cancel events
 //! - [`ActiveAssetData`]: User leverage and trade-size limits
@@ -158,11 +159,10 @@ where
     }
 }
 
-fn deserialize_fast_asset_ctxs<'de, D>(
-    deserializer: D,
-) -> Result<HashMap<String, FastAssetCtx>, D::Error>
+fn deserialize_base64_deflate_json<'de, D, T>(deserializer: D) -> Result<T, D::Error>
 where
     D: Deserializer<'de>,
+    T: serde::de::DeserializeOwned,
 {
     let encoded = String::deserialize(deserializer)?;
     let compressed = BASE64_STANDARD
@@ -174,6 +174,26 @@ where
         .read_to_string(&mut json)
         .map_err(serde::de::Error::custom)?;
     serde_json::from_str(&json).map_err(serde::de::Error::custom)
+}
+
+fn deserialize_l2_snapshot<'de, D>(deserializer: D) -> Result<L2Book, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let mut book = L2Book::deserialize(deserializer)?;
+    book.snapshot = true;
+    Ok(book)
+}
+
+fn deserialize_l2_update<'de, D>(deserializer: D) -> Result<L2Update, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    match Value::deserialize(deserializer)? {
+        encoded @ Value::String(_) => deserialize_base64_deflate_json(encoded),
+        plain => serde_json::from_value(plain),
+    }
+    .map_err(serde::de::Error::custom)
 }
 
 /// Domain for Core mainnet EIP‑712 signing.
@@ -342,6 +362,7 @@ pub enum PostResponsePayload {
 /// | [`Bbo`](Self::Bbo) | [`Incoming::Bbo`] | Best bid and offer updates |
 /// | [`Trades`](Self::Trades) | [`Incoming::Trades`] | Real-time trades |
 /// | [`L2Book`](Self::L2Book) | [`Incoming::L2Book`] | Order book updates |
+/// | [`L2`](Self::L2) | [`Incoming::L2`] | Order book snapshot, then updates |
 /// | [`Candle`](Self::Candle) | [`Incoming::Candle`] | Candlestick (OHLCV) data |
 /// | [`AllMids`](Self::AllMids) | [`Incoming::AllMids`] | Mid prices for all markets |
 /// | [`FastAssetCtxs`](Self::FastAssetCtxs) | [`Incoming::FastAssetCtxs`] | Low-latency mark/mid price updates |
@@ -416,6 +437,18 @@ pub enum Subscription {
         /// remains the deeper, slower 20-level snapshot stream.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         fast: bool,
+    },
+    /// Frontend-oriented order book feed (20-level snapshot, then updates every ~0.5s)
+    #[display("l2({coin})")]
+    L2 {
+        #[serde(rename = "c")]
+        coin: String,
+        /// Aggregate price levels to this many significant figures (valid: 2-5; `None` for full precision).
+        #[serde(default, rename = "s", skip_serializing_if = "Option::is_none")]
+        n_sig_figs: Option<u8>,
+        /// Further aggregation; only valid when `n_sig_figs` is `5` (values: 2 or 5).
+        #[serde(default, rename = "m", skip_serializing_if = "Option::is_none")]
+        mantissa: Option<u8>,
     },
     /// Real-time candlestick updates
     #[display("candle({coin}@{interval})")]
@@ -524,6 +557,7 @@ pub enum Subscription {
 /// - **SubscriptionResponse**: Confirmation of subscription/unsubscription
 /// - **Bbo**: Best bid and offer update
 /// - **L2Book**: Order book snapshot or delta
+/// - **L2**: Order book snapshot or update
 /// - **Candle**: Candlestick (OHLCV) update
 /// - **AllMids**: Mid prices for all markets
 /// - **Trades**: Trade events for a market
@@ -578,6 +612,8 @@ pub enum Incoming {
     Bbo(Bbo),
     /// Order book snapshot or delta
     L2Book(L2Book),
+    /// Order book snapshot or update
+    L2(L2),
     /// Candlestick update
     Candle(Candle),
     /// Mid prices for all markets
@@ -692,7 +728,8 @@ pub enum Incoming {
     /// Hyperliquid sends this channel as base64-encoded raw-DEFLATE JSON. The SDK
     /// decodes it before exposing the map.
     FastAssetCtxs(
-        #[serde(deserialize_with = "deserialize_fast_asset_ctxs")] HashMap<String, FastAssetCtx>,
+        #[serde(deserialize_with = "deserialize_base64_deflate_json")]
+        HashMap<String, FastAssetCtx>,
     ),
     /// Outcome market metadata updates
     OutcomeMetaUpdates(serde_json::Value),
@@ -1250,6 +1287,126 @@ impl L2Book {
         let ask = self.best_ask()?;
         Some(ask.px - bid.px)
     }
+
+    /// Applies an update from the `l2` subscription.
+    ///
+    /// Updates not newer than the book are ignored. The first update after a snapshot can
+    /// carry the snapshot's time, and the snapshot already includes its changes. Levels the
+    /// update inserts or replaces get `n = 0`, since updates carry no order count.
+    ///
+    /// Returns an error, leaving the book unchanged, if the update is for another coin or
+    /// removes a level the book does not have. The second case means the book is out of
+    /// sync, so resubscribe to get a new snapshot.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use hypersdk::hypercore::types::{L2, L2Book};
+    ///
+    /// # fn handle(book: &mut Option<L2Book>, msg: L2) -> anyhow::Result<()> {
+    /// match msg {
+    ///     L2::Snapshot(snapshot) => *book = Some(snapshot),
+    ///     L2::Update(update) => {
+    ///         if let Some(book) = book {
+    ///             book.apply(&update)?;
+    ///         }
+    ///     }
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn apply(&mut self, update: &L2Update) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            update.coin == self.coin,
+            "l2 update for {} applied to the {} book",
+            update.coin,
+            self.coin
+        );
+        if update.time <= self.time {
+            return Ok(());
+        }
+        for (levels, removed) in self.levels.iter().zip(&update.removed) {
+            anyhow::ensure!(
+                removed.iter().all(|&index| index < levels.len()),
+                "l2 update removes {removed:?} from a side with {} levels",
+                levels.len()
+            );
+        }
+        for ((levels, removed), upserts) in self
+            .levels
+            .iter_mut()
+            .zip(&update.removed)
+            .zip(&update.levels)
+        {
+            let mut index = 0;
+            levels.retain(|_| {
+                let keep = !removed.contains(&index);
+                index += 1;
+                keep
+            });
+            for upsert in upserts {
+                let level = BookLevel {
+                    px: upsert.px,
+                    sz: upsert.sz,
+                    n: 0,
+                };
+                match levels.iter_mut().find(|existing| existing.px == upsert.px) {
+                    Some(existing) => *existing = level,
+                    None => levels.push(level),
+                }
+            }
+        }
+        let [bids, asks] = &mut self.levels;
+        bids.sort_unstable_by_key(|level| std::cmp::Reverse(level.px));
+        asks.sort_unstable_by_key(|level| level.px);
+        self.time = update.time;
+        Ok(())
+    }
+}
+
+/// Order book message from the `l2` subscription.
+///
+/// The first message is a snapshot. Later messages are updates to apply to it with
+/// [`L2Book::apply`].
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub enum L2 {
+    /// Full book
+    #[serde(rename = "s")]
+    Snapshot(#[serde(deserialize_with = "deserialize_l2_snapshot")] L2Book),
+    /// Changes since the previous message
+    ///
+    /// Hyperliquid sends an update either as base64-encoded raw-DEFLATE JSON under `c` or as
+    /// plain JSON under `u`. The SDK decodes both.
+    #[serde(rename = "u", alias = "c")]
+    Update(#[serde(deserialize_with = "deserialize_l2_update")] L2Update),
+}
+
+/// Order book update from the `l2` subscription, applied with [`L2Book::apply`].
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct L2Update {
+    /// Market symbol
+    #[serde(rename = "c")]
+    pub coin: String,
+    /// Timestamp in milliseconds
+    #[serde(rename = "t")]
+    pub time: u64,
+    /// [bids, asks] indices into the previous book, all dropped at once before `levels` is applied
+    #[serde(rename = "r")]
+    pub removed: [Vec<usize>; 2],
+    /// [bids, asks] levels to insert or replace by price, after which each side is re-sorted
+    #[serde(rename = "l")]
+    pub levels: [Vec<L2Level>; 2],
+}
+
+/// Price level in an [`L2Update`].
+#[derive(Copy, Clone, PartialEq, Eq, Serialize, Deserialize, Debug)]
+pub struct L2Level {
+    /// Price level
+    #[serde(rename = "p")]
+    pub px: Decimal,
+    /// Total size at this level
+    #[serde(rename = "s")]
+    pub sz: Decimal,
 }
 
 /// Direction of a user fill.
@@ -4868,6 +5025,228 @@ mod tests {
     }
 
     #[test]
+    fn test_l2_subscription() {
+        let plain = Subscription::L2 {
+            coin: "BTC".to_string(),
+            n_sig_figs: None,
+            mantissa: None,
+        };
+        assert_eq!(
+            serde_json::to_value(&plain).unwrap(),
+            serde_json::json!({ "type": "l2", "c": "BTC" })
+        );
+
+        let aggregated = Subscription::L2 {
+            coin: "BTC".to_string(),
+            n_sig_figs: Some(5),
+            mantissa: Some(2),
+        };
+        let json = serde_json::to_value(&aggregated).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({ "type": "l2", "c": "BTC", "s": 5, "m": 2 })
+        );
+        let deserialized: Subscription = serde_json::from_value(json).unwrap();
+        assert_eq!(aggregated, deserialized);
+    }
+
+    #[test]
+    fn test_incoming_l2_snapshot() {
+        let json = r#"{
+            "channel":"l2",
+            "data":{"s":{"coin":"BTC","time":1794819182060,"levels":[
+                [{"px":"64495.0","sz":"0.00048","n":2},{"px":"64493.0","sz":"0.00017","n":1}],
+                [{"px":"64496.0","sz":"39.0515","n":99}]
+            ]}}
+        }"#;
+
+        let Incoming::L2(L2::Snapshot(book)) = serde_json::from_str(json).unwrap() else {
+            panic!("expected Incoming::L2(L2::Snapshot)");
+        };
+        assert!(book.is_snapshot());
+        assert_eq!(book.coin, "BTC");
+        assert_eq!(book.time, 1794819182060);
+        assert_eq!(book.bids().len(), 2);
+        assert_eq!(book.best_ask().unwrap().px.to_string(), "64496.0");
+        assert_eq!(book.best_ask().unwrap().n, 99);
+    }
+
+    #[test]
+    fn test_incoming_l2_update() {
+        let json = r#"{
+            "channel":"l2",
+            "data":{"u":{"c":"BTC","t":1794816177847,"l":[[],[{"p":"64797.0","s":"25.56377"},{"p":"64801.0","s":"17.07363"}]],"r":[[],[]]}}
+        }"#;
+
+        let Incoming::L2(L2::Update(update)) = serde_json::from_str(json).unwrap() else {
+            panic!("expected Incoming::L2(L2::Update)");
+        };
+        assert_eq!(update.coin, "BTC");
+        assert_eq!(update.time, 1794816177847);
+        assert!(update.removed.iter().all(Vec::is_empty));
+        assert!(update.levels[0].is_empty());
+        assert_eq!(update.levels[1].len(), 2);
+        assert_eq!(update.levels[1][0].px.to_string(), "64797.0");
+        assert_eq!(update.levels[1][0].sz.to_string(), "25.56377");
+    }
+
+    #[test]
+    fn test_incoming_l2_compressed_update_decodes_payload() {
+        let json = r#"{
+            "channel":"l2",
+            "data":{"c":"XZI7bgUhDEX34hpZtvEHpky2kO5pqrQpoiTd0+w9pDHjdKDDgQuXJ7zDAS9vr9DgBw6OqYOncGiPBh9wPB5P+FxLXNUnEjT4XjNCIp4BV9t03KkKeaGWlJF0qBTakxKy05yFLiPP7Z3vzHYmQR7sJZN57ivoRm7F3ZkUhYJGoZquYoRHPXcn7otKlMQm6TqOWZ/CKKGh9fDyFLovZLja0A7X2XYJsW1etpLeQwfn3mvkxqWEkKTdsYf8kz2xoPTuVY6khuuTlNSxyw9UiqoOu6uhUUoakVQxyOai59ng6+/zeaN1ex6N53levw=="}
+        }"#;
+
+        let Incoming::L2(L2::Update(update)) = serde_json::from_str(json).unwrap() else {
+            panic!("expected Incoming::L2(L2::Update)");
+        };
+        assert_eq!(update.coin, "BTC");
+        assert_eq!(update.time, 1794819217437);
+        assert_eq!(update.removed, [vec![6, 0], vec![18, 19]]);
+        assert_eq!(update.levels[0].len(), 13);
+        assert_eq!(update.levels[1].len(), 8);
+        assert_eq!(update.levels[0][0].px.to_string(), "64469.0");
+        assert_eq!(update.levels[0][0].sz.to_string(), "0.00197");
+    }
+
+    #[test]
+    fn test_l2_book_apply() {
+        use rust_decimal::dec;
+
+        let mut book = L2Book {
+            coin: "BTC".to_string(),
+            time: 1794819182060,
+            snapshot: true,
+            levels: [
+                vec![
+                    BookLevel {
+                        px: dec!(64495),
+                        sz: dec!(0.1),
+                        n: 1,
+                    },
+                    BookLevel {
+                        px: dec!(64494),
+                        sz: dec!(0.2),
+                        n: 2,
+                    },
+                    BookLevel {
+                        px: dec!(64493),
+                        sz: dec!(0.3),
+                        n: 3,
+                    },
+                ],
+                vec![
+                    BookLevel {
+                        px: dec!(64496),
+                        sz: dec!(0.5),
+                        n: 5,
+                    },
+                    BookLevel {
+                        px: dec!(64497),
+                        sz: dec!(0.6),
+                        n: 6,
+                    },
+                    BookLevel {
+                        px: dec!(64498),
+                        sz: dec!(0.7),
+                        n: 7,
+                    },
+                ],
+            ],
+        };
+
+        book.apply(&L2Update {
+            coin: "BTC".to_string(),
+            time: 1794819182060,
+            removed: [vec![0], vec![0]],
+            levels: [vec![], vec![]],
+        })
+        .unwrap();
+        assert_eq!(book.bids().len(), 3);
+        assert_eq!(book.asks().len(), 3);
+
+        book.apply(&L2Update {
+            coin: "BTC".to_string(),
+            time: 1794819182601,
+            removed: [vec![2, 0], vec![0, 1]],
+            levels: [
+                vec![L2Level {
+                    px: dec!(64492),
+                    sz: dec!(1.0),
+                }],
+                vec![
+                    L2Level {
+                        px: dec!(64497),
+                        sz: dec!(0.9),
+                    },
+                    L2Level {
+                        px: dec!(64499),
+                        sz: dec!(1.1),
+                    },
+                ],
+            ],
+        })
+        .unwrap();
+        assert_eq!(book.time, 1794819182601);
+        assert_eq!(
+            book.bids(),
+            [
+                BookLevel {
+                    px: dec!(64494),
+                    sz: dec!(0.2),
+                    n: 2
+                },
+                BookLevel {
+                    px: dec!(64492),
+                    sz: dec!(1.0),
+                    n: 0
+                },
+            ]
+        );
+        assert_eq!(
+            book.asks(),
+            [
+                BookLevel {
+                    px: dec!(64497),
+                    sz: dec!(0.9),
+                    n: 0
+                },
+                BookLevel {
+                    px: dec!(64498),
+                    sz: dec!(0.7),
+                    n: 7
+                },
+                BookLevel {
+                    px: dec!(64499),
+                    sz: dec!(1.1),
+                    n: 0
+                },
+            ]
+        );
+
+        assert!(
+            book.apply(&L2Update {
+                coin: "ETH".to_string(),
+                time: 1794819183140,
+                removed: [vec![], vec![]],
+                levels: [vec![], vec![]],
+            })
+            .is_err()
+        );
+        assert!(
+            book.apply(&L2Update {
+                coin: "BTC".to_string(),
+                time: 1794819183140,
+                removed: [vec![0], vec![3]],
+                levels: [vec![], vec![]],
+            })
+            .is_err()
+        );
+        assert_eq!(book.time, 1794819182601);
+        assert_eq!(book.bids().len(), 2);
+    }
+
+    #[test]
     fn test_user_stream_subscription_roundtrip() {
         let user: Address = "0x1234567890abcdef1234567890abcdef12345678"
             .parse()
@@ -6242,6 +6621,16 @@ mod tests {
                 mantissa: None,
                 fast: true,
             },
+            Subscription::L2 {
+                coin: "BTC".to_string(),
+                n_sig_figs: None,
+                mantissa: None,
+            },
+            Subscription::L2 {
+                coin: "BTC".to_string(),
+                n_sig_figs: Some(5),
+                mantissa: Some(2),
+            },
             Subscription::Candle {
                 coin: "BTC".to_string(),
                 interval: "1m".to_string(),
@@ -6361,6 +6750,11 @@ mod tests {
                 mantissa: None,
                 fast: false,
             },
+            Subscription::L2 {
+                coin: "BTC".to_string(),
+                n_sig_figs: None,
+                mantissa: None,
+            },
             Subscription::Bbo {
                 coin: "BTC".to_string(),
             },
@@ -6386,6 +6780,8 @@ mod tests {
                         Event::Message(Incoming::SubscriptionResponse(_)) => continue,
                         Event::Message(Incoming::Error(err)) => return Err(err),
                         Event::Message(Incoming::Ping | Incoming::Pong) => continue,
+                        // `l2` opens with a snapshot; wait for an update to check its decoding.
+                        Event::Message(Incoming::L2(L2::Snapshot(_))) => continue,
                         Event::Message(msg) => return Ok(msg),
                         _ => continue,
                     }
