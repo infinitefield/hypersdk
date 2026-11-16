@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking**: `Liquidation::liquidated_user` is now `Option<Address>`.
+
+### Fixed
+
+- `userFills` snapshots no longer fail when an older liquidation fill omits `liquidatedUser` (#107).
+
 ## [v0.3.1] - 2026-11-13
 
 ### Changed
