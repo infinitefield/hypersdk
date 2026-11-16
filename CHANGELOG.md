@@ -6,8 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking**: `Liquidation::liquidated_user` is now `Option<String>`.
+
 ### Fixed
 
+- `userFills` snapshots no longer fail when an older liquidation fill omits `liquidatedUser` (#107).
 - Updated hypecli's SDK dependency requirement to 0.3.0 so release builds resolve the local SDK.
 
 ## [v0.3.0] - 2026-10-12

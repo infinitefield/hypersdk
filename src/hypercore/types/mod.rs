@@ -1767,14 +1767,15 @@ pub struct OpenOrder {
 ///
 /// # Fields
 ///
-/// - `liquidated_user`: Address of the user being liquidated
+/// - `liquidated_user`: Address of the user being liquidated, absent on some older fills
 /// - `mark_px`: Mark price at liquidation
 /// - `method`: Liquidation method used
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Liquidation {
-    /// Address of liquidated user
-    pub liquidated_user: String,
+    /// Address of liquidated user. Some historical fills omit it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub liquidated_user: Option<String>,
     /// Mark price at liquidation
     pub mark_px: Decimal,
     /// Liquidation method
@@ -5936,6 +5937,53 @@ mod tests {
                 )
             }
         }
+    }
+
+    #[test]
+    fn test_fill_liquidation_without_liquidated_user() {
+        // Older mainnet fills carry a liquidation object with no `liquidatedUser`.
+        // One such record used to reject the whole userFills snapshot.
+        let json = r#"{
+            "coin": "BTC",
+            "px": "49274.0",
+            "sz": "0.01",
+            "side": "A",
+            "time": 1700000000000,
+            "startPosition": "0.01",
+            "dir": "Close Long",
+            "closedPnl": "-10.0",
+            "hash": "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            "oid": 1,
+            "crossed": true,
+            "fee": "0.1",
+            "tid": 2,
+            "feeToken": "USDC",
+            "liquidation": {"markPx": "49274.0", "method": "market"}
+        }"#;
+
+        let fill: Fill = serde_json::from_str(json).unwrap();
+        let liquidation = fill.liquidation.unwrap();
+        assert_eq!(liquidation.liquidated_user, None);
+        assert_eq!(liquidation.mark_px.to_string(), "49274.0");
+        assert_eq!(liquidation.method, "market");
+
+        let reserialized = serde_json::to_value(&liquidation).unwrap();
+        assert!(reserialized.get("liquidatedUser").is_none());
+    }
+
+    #[test]
+    fn test_fill_liquidation_with_liquidated_user() {
+        let json = r#"{
+            "liquidatedUser": "0x0000000000000000000000000000000000000001",
+            "markPx": "49274.0",
+            "method": "market"
+        }"#;
+
+        let liquidation: Liquidation = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            liquidation.liquidated_user.as_deref(),
+            Some("0x0000000000000000000000000000000000000001")
+        );
     }
 
     /// Checks that mainnet still answers every info request this SDK can build.
