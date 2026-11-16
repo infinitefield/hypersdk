@@ -1775,7 +1775,7 @@ pub struct OpenOrder {
 pub struct Liquidation {
     /// Address of liquidated user. Some historical fills omit it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub liquidated_user: Option<String>,
+    pub liquidated_user: Option<Address>,
     /// Mark price at liquidation
     pub mark_px: Decimal,
     /// Liquidation method
@@ -5981,8 +5981,8 @@ mod tests {
 
         let liquidation: Liquidation = serde_json::from_str(json).unwrap();
         assert_eq!(
-            liquidation.liquidated_user.as_deref(),
-            Some("0x0000000000000000000000000000000000000001")
+            liquidation.liquidated_user,
+            Some(Address::with_last_byte(1))
         );
     }
 
