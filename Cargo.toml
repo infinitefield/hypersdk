@@ -1,7 +1,7 @@
 ## Package metadata
 [package]
 name = "hypersdk"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 authors = ["Dario <dario@infinitefieldtrading.com>"]
 license = "MPL-2.0"
@@ -245,37 +245,37 @@ uniswap = ["hyperevm"]
 
 ## Runtime dependencies
 [dependencies]
-alloy = { version = "2", default-features = false, features = ["dyn-abi", "eip712", "getrandom", "serde", "signer-local", "signers", "sol-types", "std"] }
-anyhow = "1"
-base64 = "0.23"
-thiserror = "2"
-const-hex = { version = "1.17", features = ["serde"] }
-derive_more = { version = "2", features = ["display", "is_variant"] }
-either = { version = "1", features = ["serde"] }
-flate2 = "1"
-futures = { version = "0.3", optional = true, default-features = false, features = ["std"] }
-log = "0.4"
-reqwest = { version = "0.13", optional = true, features = ["json"] }
-rmp-serde = "1"
-rust_decimal = { version = "1.39", features = ["macros", "maths", "serde", "serde-with-str"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-serde_with = { version = "3", default-features = false, features = ["std"] }
-tokio = { version = "1", optional = true, default-features = false, features = ["macros", "rt", "sync", "time"] }
-tokio-util = { version = "0.7", optional = true, default-features = false, features = ["rt"] }
-url = { version = "2", optional = true }
-yawc = { version = "0.3", optional = true, features = ["simd"] }
-hex-literal = "1"
-chrono = { version = "0.4", features = ["now"] }
-num-traits = { version = "0.2", optional = true }
+alloy = { version = "2.5.0", default-features = false, features = ["dyn-abi", "eip712", "getrandom", "serde", "signer-local", "signers", "sol-types", "std"] }
+anyhow = "1.0.104"
+base64 = "0.23.1"
+thiserror = "2.0.21"
+const-hex = { version = "1.19.3", features = ["serde"] }
+derive_more = { version = "2.1.1", features = ["display", "is_variant"] }
+either = { version = "1.19.0", features = ["serde"] }
+flate2 = "1.1.11"
+futures = { version = "0.3.34", optional = true, default-features = false, features = ["std"] }
+log = "0.4.35"
+reqwest = { version = "0.13.5", optional = true, features = ["json"] }
+rmp-serde = "1.3.1"
+rust_decimal = { version = "1.43.0", features = ["macros", "maths", "serde", "serde-with-str"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+serde_with = { version = "3.24.0", default-features = false, features = ["std"] }
+tokio = { version = "1.54.1", optional = true, default-features = false, features = ["macros", "rt", "sync", "time"] }
+tokio-util = { version = "0.7.20", optional = true, default-features = false, features = ["rt"] }
+url = { version = "2.5.8", optional = true }
+yawc = { version = "0.5.0", optional = true, features = ["simd"] }
+hex-literal = "1.1.0"
+chrono = { version = "0.4.45", features = ["now"] }
+num-traits = { version = "0.2.19", optional = true }
 
 ## Development and test dependencies
 [dev-dependencies]
-futures = { version = "0.3", default-features = false, features = ["std"] }
-alloy = { version = "2", features = ["pubsub", "signer-keystore"], default-features = false }
-clap = { version = "4", features = ["derive"] }
+futures = { version = "0.3.34", default-features = false, features = ["std"] }
+alloy = { version = "2.5.0", features = ["pubsub", "signer-keystore"], default-features = false }
+clap = { version = "4.6.7", features = ["derive"] }
 dotenvy = "0.15.7"
-indicatif = "0.18.3"
-rpassword = "7.4.0"
-simple_logger = "5"
-tokio = { version = "1", features = ["full"] }
+indicatif = "0.18.6"
+rpassword = "7.5.5"
+simple_logger = "5.2.0"
+tokio = { version = "1.54.1", features = ["full"] }

@@ -592,7 +592,7 @@ fn jittered_duration(base_secs: u64, jitter_frac: Decimal) -> Duration {
 }
 
 fn random_decimal() -> Decimal {
-    Decimal::from(rand_09::random_range(0u32..=1_000_000)) / Decimal::from(1_000_000u32)
+    Decimal::from(rand_10::random_range(0u32..=1_000_000)) / Decimal::from(1_000_000u32)
 }
 
 fn randomize_sizes(
