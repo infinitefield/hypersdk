@@ -60,12 +60,27 @@ pub fn to_wei(size: Decimal, decimals: u32) -> U256 {
 #[must_use]
 #[inline]
 pub fn from_wei(wei: U256, decimals: u32) -> Decimal {
+    // Fast path for the common case: no string round trip. `try_from_i128_with_scale`
+    // errors (it does not panic) past 2^96 and for a scale above 28, which the string
+    // path below handles.
+    if let Some(d) = i128::try_from(wei)
+        .ok()
+        .and_then(|v| Decimal::try_from_i128_with_scale(v, decimals).ok())
+    {
+        return d;
+    }
     // `Decimal::from_i128_with_scale` panics once the wei value passes 2^96 (about
     // 1e11 tokens at 18 decimals), and `U256::to::<i128>` past `i128::MAX`. Split
     // the value at the decimal point instead and let `Decimal` parse it, which
     // keeps every representable amount and only rounds excess fractional digits.
     let digits = wei.to_string();
     let decimals = decimals as usize;
+    // Once the first non-zero digit sits more than 28 places after the decimal point,
+    // `Decimal` rounds the value to zero. Return early rather than padding the string
+    // to `decimals` bytes, which a wrapped-around `decimals` would make huge.
+    if decimals >= digits.len() + 29 {
+        return Decimal::ZERO;
+    }
     let text = if digits.len() > decimals {
         let (int, frac) = digits.split_at(digits.len() - decimals);
         format!("{int}.{frac}")
@@ -109,6 +124,8 @@ mod tests {
             // More decimals than a Decimal scale can hold.
             (U256::from(1), 30, dec!(0)),
             (U256::from(10u8).pow(U256::from(30)), 30, dec!(1)),
+            // A wrapped-around decimals count returns zero without padding a 4 GB string.
+            (U256::from(5), u32::MAX, dec!(0)),
         ];
         for (index, (got, decimals, expect)) in test_values.into_iter().enumerate() {
             assert_eq!(from_wei(got, decimals), expect, "failed at {index}");
