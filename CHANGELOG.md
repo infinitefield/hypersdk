@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 
 - `userFills` snapshots no longer fail when an older liquidation fill omits `liquidatedUser` (#107).
+- `to_wei` no longer returns a value ten times too small for amounts whose scaled mantissa needs more than 96 bits (e.g. `to_wei(dec!(100_000_000_000), 18)`), and `from_wei` no longer panics above 2^96 wei or with more than 28 decimals.
 
 ## [v0.3.1] - 2026-11-13
 
