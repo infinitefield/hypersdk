@@ -7,7 +7,6 @@ authors = ["Dario <dario@infinitefieldtrading.com>"]
 license = "MPL-2.0"
 description = "Rust SDK for Hyperliquid"
 repository = "https://github.com/infinitefield/hypersdk"
-homepage = "https://github.com/infinitefield/hypersdk"
 readme = "README.md"
 keywords = ["hyperliquid", "sdk", "trading", "dex", "perps"]
 documentation = "https://docs.rs/hypersdk"
@@ -265,7 +264,6 @@ tokio = { version = "1.54.1", optional = true, default-features = false, feature
 tokio-util = { version = "0.7.20", optional = true, default-features = false, features = ["rt"] }
 url = { version = "2.5.9", optional = true }
 yawc = { version = "0.5.0", optional = true, features = ["simd"] }
-hex-literal = "1.1.0"
 chrono = { version = "0.4.45", features = ["now"] }
 num-traits = { version = "0.2.19", optional = true }
 
