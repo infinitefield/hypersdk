@@ -97,9 +97,9 @@ pub(super) mod solidity;
 
 // Re-export important raw types for convenience
 pub use api::{
-    AbstractionMode, Action, ActionRequest, ApproveBuilderFee, GossipPriorityBid,
-    Hip3LiquidatorTransferAction, MultiSigAction, MultiSigPayload, OkResponse, Response,
-    TokenDelegateAction, TrailingStop, TrailingStopRetracement, TwapOrderParams,
+    AbstractionMode, Action, ActionRequest, ApproveBuilderFee, CDepositAction, CWithdrawAction,
+    GossipPriorityBid, Hip3LiquidatorTransferAction, MultiSigAction, MultiSigPayload, OkResponse,
+    Response, TokenDelegateAction, TrailingStop, TrailingStopRetracement, TwapOrderParams,
     UsdClassTransferAction, UserDexAbstractionAction, UserSetAbstractionAction, Withdraw3Action,
 };
 use api::{AgentSendAssetAction, SendAssetAction, SpotSendAction, UsdSendAction};
@@ -6448,7 +6448,7 @@ mod tests {
             InfoRequest::OutcomeTemplates,
             InfoRequest::GossipPriorityAuctionStatus,
             InfoRequest::UserAbstraction { user: USER },
-            InfoRequest::UserDexAbstraction { user: USER },
+            // UserDexAbstraction is deprecated and returns HTTP 422 on mainnet and testnet.
             InfoRequest::MaxBuilderFee {
                 user: USER,
                 builder: USER,
@@ -6516,7 +6516,7 @@ mod tests {
             InfoRequest::IsVip { user: USER },
             InfoRequest::LeadingVaults { user: USER },
             InfoRequest::LegalCheck { user: USER },
-            InfoRequest::Liquidatable,
+            // Liquidatable is deprecated and returns HTTP 422 on mainnet and testnet.
             InfoRequest::MarginTable { id: 50 },
             InfoRequest::MaxMarketOrderNtls,
             InfoRequest::PreTransferCheck {

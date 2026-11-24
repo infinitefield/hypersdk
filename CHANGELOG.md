@@ -9,10 +9,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Added
 
 - WebSocket subscription `l2` through `Subscription::L2` and `Incoming::L2`, plus `L2Book::apply` to apply its updates.
+- Agent-signed staking deposit `Action::CDeposit2` (`HttpClient::stake_agent`).
+- `hypecli validator` subcommands (`list`, `info`, `rotate-signer`, `change-profile`, `register`, `unregister`, `jail`, `unjail`, `stake-deposit`, `stake-withdraw`, `delegate`, `undelegate`, `approve-agent`, `vote-rate`) with `--multi-sig-addr` P2P and hardware-wallet multisig support.
 
 ### Changed
 
 - **Breaking**: `Liquidation::liquidated_user` is now `Option<Address>`.
+- **Breaking**: `Action::CDeposit` and `Action::CWithdraw` now carry `CDepositAction` and `CWithdrawAction` and sign as user-signed EIP-712 actions (and multisig EIP-712 payloads) matching the exchange API.
+- Updated `hypersdk` and `hypecli` dependencies (`alloy` 2.6.1, `iroh` 1.5.0, `clap` 4.6.9, `serde_with` 3.25.0, `anyhow` 1.0.105, `url` 2.5.9, `bytes` 1.12.2, `rand` 0.10.4).
 
 ### Fixed
 

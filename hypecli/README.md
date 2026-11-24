@@ -103,6 +103,45 @@ hypecli dex star-state 0xUser... --chain testnet
 
 To delegate a HIP-3\* operation, pass `--permission hip3Star:<operation>`, e.g. `hip3Star:modifyApproval`. `dex info` prints grants in the same form.
 
+### Validator & Staking Operations
+
+Inspect validators, rotate the consensus hot `signer` wallet, update validator profiles, manage HYPE staking/delegations, and approve agent keys (such as `aqa-publisher`). All validator cold-wallet commands accept `--multi-sig-addr` (and `--local`) for P2P/hardware-wallet multisig coordination; consensus `signer` hot keys in `node_config.json` stay single-key.
+
+```bash
+# List validators or inspect one by name or address (shows signer, multisig config, delegations, agents)
+hypecli validator list
+hypecli validator info infinitefield.xyz
+
+# Rotate the consensus signer hot key from a multisig validator cold wallet
+# (preserves current unjailed status unless --unjailed or --jail is passed)
+hypecli validator rotate-signer \
+  --multi-sig-addr 0xYourValidatorMultiSig... \
+  --keystore my-wallet \
+  --new-signer 0xNewConsensusSigner...
+
+# Update validator profile fields (IP, name, description, commission bps, delegations)
+hypecli validator change-profile \
+  --multi-sig-addr 0xYourValidatorMultiSig... \
+  --keystore my-wallet \
+  --ip 203.0.113.10 \
+  --commission-bps 100
+
+# Deposit/withdraw HYPE in staking and delegate/undelegate (1 HYPE = 10^8 wei)
+hypecli validator stake-deposit --multi-sig-addr 0xYourValidatorMultiSig... --keystore my-wallet --amount 100
+hypecli validator delegate --multi-sig-addr 0xYourValidatorMultiSig... --keystore my-wallet --validator 0xValidator... --amount 100
+
+# Approve or rotate a named agent key (e.g. 'publisher' for validatorL1Stream)
+hypecli validator approve-agent \
+  --multi-sig-addr 0xYourValidatorMultiSig... \
+  --keystore my-wallet \
+  --agent 0xPublisherAgent... \
+  --name publisher
+
+# Jail or unjail from the consensus signer hot wallet
+hypecli validator jail --private-key 0xConsensusSignerKey...
+hypecli validator unjail --private-key 0xConsensusSignerKey...
+```
+
 ### List Perpetual Markets
 
 List perpetual markets from Hyperliquid or a specific HIP-3 DEX.
@@ -382,6 +421,7 @@ The same `--multi-sig-addr <ADDRESS>` and `--local` options work on:
 - `vault deposit` and `vault withdraw`
 - `outcome split`, `outcome merge`, `outcome merge-question`, and `outcome negate`
 - `dex halt`, `dex resume`, `dex sub-deployer`, `dex allow`, `dex disallow`, `dex reduce-only`, and `dex cancel-all`
+- `validator rotate-signer`, `validator change-profile`, `validator register`, `validator unregister`, `validator jail`, `validator unjail`, `validator stake-deposit`, `validator stake-withdraw`, `validator delegate`, `validator undelegate`, `validator approve-agent`, and `validator vote-rate`
 - `prio bid`
 
 These commands, Send, and Earn share the same software-key, Ledger, and Trezor

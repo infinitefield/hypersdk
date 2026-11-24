@@ -148,20 +148,21 @@ pub enum Action {
     /// Transfer between spot and perp balances.
     #[from(skip)]
     UsdClassTransfer(UsdClassTransferAction),
-    /// Stake native token (HYPE).
+    /// Stake native token (HYPE) via user-signed EIP-712 (`cDeposit`).
     #[from(skip)]
     #[serde(rename = "cDeposit")]
-    CDeposit {
-        /// Amount in wei (native token).
+    CDeposit(CDepositAction),
+    /// Stake native token (HYPE) via agent-signed L1 action (`cDeposit2`).
+    #[from(skip)]
+    #[serde(rename = "cDeposit2")]
+    CDeposit2 {
+        /// Amount in staking wei (1 HYPE = 10^8 wei).
         wei: u64,
     },
-    /// Unstake native token (HYPE). 7-day queue.
+    /// Unstake native token (HYPE) via user-signed EIP-712 (`cWithdraw`). 7-day queue.
     #[from(skip)]
     #[serde(rename = "cWithdraw")]
-    CWithdraw {
-        /// Amount in wei (native token).
-        wei: u64,
-    },
+    CWithdraw(CWithdrawAction),
     /// Delegate or undelegate staked tokens to a validator.
     #[from(skip)]
     TokenDelegate(TokenDelegateAction),
@@ -172,8 +173,10 @@ pub enum Action {
         weight: u32,
         /// Account the reserved capacity is credited to. `None` credits the signer.
         #[serde(
+            default,
             skip_serializing_if = "Option::is_none",
-            serialize_with = "crate::hypercore::utils::serialize_option_address_as_hex"
+            serialize_with = "crate::hypercore::utils::serialize_option_address_as_hex",
+            deserialize_with = "crate::hypercore::utils::deserialize_option_address_from_hex"
         )]
         destination: Option<Address>,
     },
@@ -345,8 +348,7 @@ impl Action {
             | Action::TwapOrder { .. }
             | Action::TwapCancel { .. }
             | Action::TrailingStop(_)
-            | Action::CDeposit { .. }
-            | Action::CWithdraw { .. }
+            | Action::CDeposit2 { .. }
             | Action::ReserveRequestWeight { .. }
             | Action::Hip3LiquidatorTransfer(_)
             | Action::UserOutcome(_)
@@ -395,6 +397,8 @@ impl Action {
             Action::UsdClassTransfer(inner) => {
                 get_typed_data::<solidity::UsdClassTransfer>(inner, chain, None)
             }
+            Action::CDeposit(inner) => get_typed_data::<solidity::CDeposit>(inner, chain, None),
+            Action::CWithdraw(inner) => get_typed_data::<solidity::CWithdraw>(inner, chain, None),
             Action::TokenDelegate(inner) => {
                 get_typed_data::<solidity::TokenDelegate>(inner, chain, None)
             }
@@ -859,7 +863,11 @@ pub struct ApproveAgent {
     ///
     /// An account can have 1 unnamed approved wallet,
     /// up to 3 named ones, and 2 named agents per subaccount.
-    #[serde(serialize_with = "utils::serialize_agent_name")]
+    #[serde(
+        default,
+        serialize_with = "utils::serialize_agent_name",
+        deserialize_with = "utils::deserialize_agent_name"
+    )]
     pub agent_name: Option<String>,
     /// Request nonce
     pub nonce: u64,
@@ -1434,6 +1442,42 @@ pub struct UsdClassTransferAction {
     pub nonce: u64,
 }
 
+/// Deposit native token (HYPE) from spot into staking (`cDeposit`).
+///
+/// User-signed EIP-712 action (`HyperliquidTransaction:CDeposit`).
+///
+/// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#deposit-into-staking>
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CDepositAction {
+    /// Signature chain ID used for EIP-712 signing.
+    pub signature_chain_id: String,
+    /// Target Hyperliquid network.
+    pub hyperliquid_chain: Chain,
+    /// Amount in staking wei (1 HYPE = 10^8 wei).
+    pub wei: u64,
+    /// Request nonce, matching the outer request.
+    pub nonce: u64,
+}
+
+/// Withdraw native token (HYPE) from staking into spot (`cWithdraw`). 7-day queue.
+///
+/// User-signed EIP-712 action (`HyperliquidTransaction:CWithdraw`).
+///
+/// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#withdraw-from-staking>
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CWithdrawAction {
+    /// Signature chain ID used for EIP-712 signing.
+    pub signature_chain_id: String,
+    /// Target Hyperliquid network.
+    pub hyperliquid_chain: Chain,
+    /// Amount in staking wei (1 HYPE = 10^8 wei).
+    pub wei: u64,
+    /// Request nonce, matching the outer request.
+    pub nonce: u64,
+}
+
 /// Delegate or undelegate staked tokens to a validator.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -1822,8 +1866,9 @@ pub struct ValidatorProfileChange {
     pub commission_bps: Option<u64>,
     /// Address authorized to sign consensus messages.
     #[serde(
+        default,
         serialize_with = "crate::hypercore::utils::serialize_option_address_as_hex",
-        default
+        deserialize_with = "crate::hypercore::utils::deserialize_option_address_from_hex"
     )]
     pub signer: Option<Address>,
 }
@@ -3041,6 +3086,25 @@ mod tests {
                     nonce,
                 })
             }),
+            ("cDeposit", {
+                let (signature_chain_id, hyperliquid_chain, nonce) = user_signed(base);
+                Action::CDeposit(CDepositAction {
+                    signature_chain_id,
+                    hyperliquid_chain,
+                    wei: 1,
+                    nonce,
+                })
+            }),
+            ("cDeposit2", Action::CDeposit2 { wei: 1 }),
+            ("cWithdraw", {
+                let (signature_chain_id, hyperliquid_chain, nonce) = user_signed(base);
+                Action::CWithdraw(CWithdrawAction {
+                    signature_chain_id,
+                    hyperliquid_chain,
+                    wei: 1,
+                    nonce,
+                })
+            }),
             (
                 "reserveRequestWeight/destination",
                 Action::ReserveRequestWeight {
@@ -3113,6 +3177,8 @@ mod tests {
                 Action::LinkStakingUser(inner) => inner.nonce = nonce,
                 Action::StakingLinkDisableTradingUser(inner) => inner.nonce = nonce,
                 Action::UserPortfolioMargin(inner) => inner.nonce = nonce,
+                Action::CDeposit(inner) => inner.nonce = nonce,
+                Action::CWithdraw(inner) => inner.nonce = nonce,
                 Action::CreateVault(inner) => inner.nonce = nonce,
                 _ => {}
             }

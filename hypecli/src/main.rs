@@ -17,6 +17,7 @@ mod to_multisig;
 mod trezor;
 mod twap;
 mod utils;
+mod validator;
 mod vault;
 
 use account::AccountCmd;
@@ -37,6 +38,7 @@ use send::SendCmd;
 use subscribe::SubscribeCmd;
 use to_multisig::ToMultiSigCmd;
 use twap::TwapCmd;
+use validator::ValidatorCmd;
 use vault::VaultCmd;
 
 /// Main CLI structure for hypecli - A command-line interface for Hyperliquid.
@@ -99,6 +101,9 @@ enum Command {
     /// Vault deposit and withdrawal commands
     #[command(subcommand)]
     Vault(VaultCmd),
+    /// Validator management, consensus signer rotation, staking, and agent operations
+    #[command(subcommand)]
+    Validator(ValidatorCmd),
     /// Query open perpetual positions for a user
     Positions(PositionsCmd),
     /// Query historical orders or trade fills
@@ -132,6 +137,7 @@ impl Command {
             Self::Subscribe(cmd) => cmd.run().await,
             Self::Send(cmd) => cmd.run().await,
             Self::Vault(cmd) => cmd.run().await,
+            Self::Validator(cmd) => cmd.run().await,
             Self::Positions(cmd) => cmd.run().await,
             Self::Orders(cmd) => cmd.run().await,
             Self::Prio(cmd) => cmd.run().await,
@@ -206,8 +212,9 @@ Commands that modify state (orders, transfers, etc.) require authentication via 
   --trezor-path <PATH>  Select a full Trezor derivation path directly
   --trezor-scan-limit <N>  Search N addresses locally from a Trezor xpub (default: 10)
 
-Orders, sends, Earn, vault transfers, outcome operations, DEX deployer actions, and priority
-bids support Ledger and Trezor. Add --multi-sig-addr <ADDRESS> for multisig and --local to require local signers.
+Orders, sends, Earn, vault transfers, outcome operations, DEX deployer actions, validator
+operations, and priority bids support Ledger and Trezor. Add --multi-sig-addr <ADDRESS> for
+multisig and --local to require local signers.
 Automated TWAP requires a private key or keystore for continuous signing.
 
 Agent (API wallet) private keys are accepted for L1 actions (orders, TWAP, vault transfers,
@@ -490,6 +497,66 @@ Cancel a HIP-3* User's Orders and TWAPs (testnet-only):
 
 Show a User's HIP-3* State:
   hypecli dex star-state <ADDRESS> --chain testnet
+
+VALIDATOR COMMANDS
+------------------
+
+Hyperliquid validators use a cold `validator` wallet (staked HYPE, profile, rewards; supports
+--multi-sig-addr) and a single-key hot consensus `signer` wallet (`node_config.json`, jailing).
+Staking amounts are specified in HYPE (`1 HYPE = 10^8 wei`).
+
+List Validators or Inspect One Validator:
+  hypecli validator list
+  hypecli validator list --active-only
+  hypecli validator info infinitefield.xyz
+  hypecli validator info <VALIDATOR_ADDRESS>
+
+Rotate Consensus Signer (Single-Signer or Multi-Sig):
+  hypecli validator rotate-signer \
+    --multi-sig-addr <VALIDATOR_MULTISIG> \
+    --keystore my-wallet \
+    --new-signer <NEW_HOT_SIGNER_ADDRESS>
+
+  Preserves the validator's current `unjailed` status from `validatorSummaries` unless
+  --unjailed or --jail is passed explicitly.
+
+Change Validator Profile:
+  hypecli validator change-profile \
+    --multi-sig-addr <VALIDATOR_MULTISIG> \
+    --keystore my-wallet \
+    --ip 203.0.113.10 \
+    --name my-validator \
+    --description "Validator node" \
+    --commission-bps 100
+
+  Also accepts --disable-delegations, --enable-delegations, --new-signer, --unjailed, --jail.
+
+Register or Unregister a Validator:
+  hypecli validator register \
+    --multi-sig-addr <VALIDATOR_MULTISIG> \
+    --keystore my-wallet \
+    --ip 203.0.113.10 \
+    --name my-validator \
+    --description "Validator node" \
+    --commission-bps 100 \
+    --consensus-signer <HOT_SIGNER_ADDRESS> \
+    --initial-stake 10000
+
+  hypecli validator unregister --multi-sig-addr <VALIDATOR_MULTISIG> --keystore my-wallet
+
+Jail or Unjail from the Consensus Signer Hot Key:
+  hypecli validator jail --private-key <HOT_SIGNER_KEY>
+  hypecli validator unjail --private-key <HOT_SIGNER_KEY>
+
+Staking Deposits, Withdrawals, and Delegations:
+  hypecli validator stake-deposit --multi-sig-addr <ADDR> --keystore my-wallet --amount 100
+  hypecli validator stake-withdraw --multi-sig-addr <ADDR> --keystore my-wallet --amount 100
+  hypecli validator delegate --multi-sig-addr <ADDR> --keystore my-wallet --validator <VAL> --amount 100
+  hypecli validator undelegate --multi-sig-addr <ADDR> --keystore my-wallet --validator <VAL> --amount 100
+
+Approve/Rotate Validator Agent Wallet or Vote AQA Rate:
+  hypecli validator approve-agent --multi-sig-addr <ADDR> --keystore my-wallet --agent <AGENT> --name publisher
+  hypecli validator vote-rate --private-key <AGENT_OR_VAL_KEY> --rate 0.04
 
 MULTI-SIG COMMANDS
 ------------------

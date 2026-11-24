@@ -253,6 +253,8 @@ mod tests {
         let cases = [
             json!({"type":"approveAgent", "agentAddress":address,"agentName":null}),
             json!({"type":"approveBuilderFee", "builder":address,"maxFeeRate":"0.001%"}),
+            json!({"type":"cDeposit", "wei":1000}),
+            json!({"type":"cWithdraw", "wei":1000}),
             json!({"type":"tokenDelegate", "validator":address,"wei":1000,"isUndelegate":false}),
             json!({"type":"withdraw3", "destination":address,"amount":"10","time":1}),
         ];

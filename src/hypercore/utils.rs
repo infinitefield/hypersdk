@@ -25,6 +25,12 @@ pub(super) fn serialize_agent_name<S: Serializer>(
     serializer.serialize_str(value.as_deref().unwrap_or_default())
 }
 
+pub(super) fn deserialize_agent_name<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error> {
+    Ok(Option::<String>::deserialize(deserializer)?.filter(|s| !s.is_empty()))
+}
+
 /// Enrich the ordinary user-signed schema, preserving its field order.
 pub(super) fn multisig_typed_data(
     mut data: TypedData,
@@ -269,6 +275,22 @@ where
 {
     let s = String::deserialize(deserializer)?;
     s.parse::<Address>().map_err(serde::de::Error::custom)
+}
+
+/// Deserializes an optional address from a hex string or `null`, including in MessagePack.
+pub(super) fn deserialize_option_address_from_hex<'de, D>(
+    deserializer: D,
+) -> Result<Option<Address>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    match Option::<String>::deserialize(deserializer)? {
+        Some(s) => s
+            .parse::<Address>()
+            .map(Some)
+            .map_err(serde::de::Error::custom),
+        None => Ok(None),
+    }
 }
 
 /// Serializes a U256 value as a hex string.

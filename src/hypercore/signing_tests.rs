@@ -166,6 +166,8 @@ fn all_user_signed_actions_get_multisig_fields() {
         json!({"type":"stakingLinkDisableTradingUser", "tradingUser":address}),
         json!({"type":"withdraw3", "destination":address,"amount":"10", "time":1}),
         json!({"type":"usdClassTransfer", "amount":"10", "toPerp":true}),
+        json!({"type":"cDeposit", "wei":1000}),
+        json!({"type":"cWithdraw", "wei":1000}),
         json!({"type":"tokenDelegate", "validator":address,"wei":1000,"isUndelegate":false}),
     ];
     for mut case in cases {

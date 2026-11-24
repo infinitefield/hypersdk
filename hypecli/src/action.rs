@@ -35,7 +35,7 @@ mod tests {
     use super::*;
     use crate::{
         Cli, Command, dex::DexCmd, earn::EarnCmd, orders::OrderCmd, outcome::OutcomeCmd,
-        prio::PrioCmd, vault::VaultCmd,
+        prio::PrioCmd, validator::ValidatorCmd, vault::VaultCmd,
     };
 
     fn action_args(command: Command) -> ActionArgs {
@@ -57,6 +57,18 @@ mod tests {
                 cmd.signer
             }
             Command::Dex(DexCmd::ReduceOnly(cmd)) => cmd.star.signer,
+            Command::Validator(ValidatorCmd::RotateSigner(cmd)) => cmd.signer,
+            Command::Validator(ValidatorCmd::ChangeProfile(cmd)) => cmd.signer,
+            Command::Validator(ValidatorCmd::Register(cmd)) => cmd.signer,
+            Command::Validator(ValidatorCmd::Unregister(cmd)) => cmd.signer,
+            Command::Validator(ValidatorCmd::Jail(cmd) | ValidatorCmd::Unjail(cmd)) => cmd.signer,
+            Command::Validator(ValidatorCmd::StakeDeposit(cmd)) => cmd.signer,
+            Command::Validator(ValidatorCmd::StakeWithdraw(cmd)) => cmd.signer,
+            Command::Validator(ValidatorCmd::Delegate(cmd) | ValidatorCmd::Undelegate(cmd)) => {
+                cmd.signer
+            }
+            Command::Validator(ValidatorCmd::ApproveAgent(cmd)) => cmd.signer,
+            Command::Validator(ValidatorCmd::VoteRate(cmd)) => cmd.signer,
             _ => panic!("expected an action command"),
         }
     }
@@ -89,6 +101,18 @@ mod tests {
             "dex reduce-only --dex test --user 0x2222222222222222222222222222222222222222",
             "dex reduce-only --dex test --user 0x2222222222222222222222222222222222222222 --off",
             "dex cancel-all --dex test --user 0x2222222222222222222222222222222222222222",
+            "validator rotate-signer --new-signer 0x2222222222222222222222222222222222222222",
+            "validator change-profile --name infinitefield.xyz --commission-bps 100",
+            "validator register --ip 1.2.3.4 --name val --description desc --commission-bps 100 --consensus-signer 0x2222222222222222222222222222222222222222 --initial-stake 10000",
+            "validator unregister",
+            "validator jail",
+            "validator unjail",
+            "validator stake-deposit --amount 100",
+            "validator stake-withdraw --amount 100",
+            "validator delegate --validator 0x2222222222222222222222222222222222222222 --amount 100",
+            "validator undelegate --validator 0x2222222222222222222222222222222222222222 --amount 100",
+            "validator approve-agent --agent 0x2222222222222222222222222222222222222222 --name publisher",
+            "validator vote-rate --rate 0.04",
         ];
         for case in cases {
             let mut args = vec!["hypecli"];
@@ -120,15 +144,25 @@ impl ActionArgs {
         client: HttpClient,
         build: impl FnOnce(Address, u64) -> Action,
     ) -> anyhow::Result<OkResponse> {
+        self.try_execute(client, |account, nonce| Ok(build(account, nonce)))
+            .await
+    }
+
+    pub async fn try_execute(
+        &self,
+        client: HttpClient,
+        build: impl FnOnce(Address, u64) -> anyhow::Result<Action>,
+    ) -> anyhow::Result<OkResponse> {
         if let Some(account) = self.multi_sig_addr {
             let config = client.multi_sig_config(account).await?;
             let signers = find_signers(&self.signer, &config.authorized_users).await?;
             let nonce = NonceHandler::default().next();
+            let action = build(account, nonce)?;
             return execute_multisig_action(
                 account,
                 client,
                 signers,
-                build(account, nonce),
+                action,
                 nonce,
                 &config,
                 self.local,
@@ -139,7 +173,7 @@ impl ActionArgs {
 
         let signer = find_signer(&self.signer, None).await?;
         let nonce = NonceHandler::default().next();
-        let request = build(signer.address(), nonce)
+        let request = build(signer.address(), nonce)?
             .sign(&signer, nonce, None, None, self.chain)
             .await?;
         match client.send(request).await? {
@@ -154,5 +188,13 @@ impl ActionArgs {
         build: impl FnOnce(Address, u64) -> Action,
     ) -> anyhow::Result<()> {
         Response::Ok(self.execute(client, build).await?).into_default()
+    }
+
+    pub async fn try_execute_default(
+        &self,
+        client: HttpClient,
+        build: impl FnOnce(Address, u64) -> anyhow::Result<Action>,
+    ) -> anyhow::Result<()> {
+        Response::Ok(self.try_execute(client, build).await?).into_default()
     }
 }

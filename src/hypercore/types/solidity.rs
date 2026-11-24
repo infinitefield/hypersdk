@@ -152,6 +152,18 @@ sol! {
         bool isUndelegate;
         uint64 nonce;
     }
+
+    struct CDeposit {
+        string hyperliquidChain;
+        uint64 wei;
+        uint64 nonce;
+    }
+
+    struct CWithdraw {
+        string hyperliquidChain;
+        uint64 wei;
+        uint64 nonce;
+    }
 }
 
 /// Multisig-specific EIP-712 struct definitions.

@@ -61,15 +61,15 @@ use crate::hypercore::{
     SpotMarket, SpotToken,
     api::{
         Action, ActionRequest, AddressEncoding, ApproveAgent, ApproveBuilderFee, Aqav2Role,
-        AuthorizeAqav2Role, BorrowLendAction, CSignerAction, CValidatorAction,
-        ConvertToMultiSigUser, CreateVault, FinalizeEvmContract, FinalizeEvmContractInput,
-        GossipPriorityBid, Hip3LiquidatorTransferAction, LinkStakingUserAction, ModifyAction,
-        OkResponse, Response, SendToEvmWithDataAction, SignersConfig, SpotUserAction,
-        StakingLinkDisableTradingUserAction, SubAccountModify, SubAccountSpotTransfer,
-        SubAccountTransfer, ToggleSpotDusting, TokenDelegateAction, TopUpIsolatedOnlyMargin,
-        TrailingStop, TwapOrderParams, UpdateIsolatedMargin, UpdateLeverage,
-        UsdClassTransferAction, UserOutcomeAction, UserPortfolioMarginAction, ValidatorL1Stream,
-        VaultDistribute, VaultModify, VaultTransfer, Withdraw3Action,
+        AuthorizeAqav2Role, BorrowLendAction, CDepositAction, CSignerAction, CValidatorAction,
+        CWithdrawAction, ConvertToMultiSigUser, CreateVault, FinalizeEvmContract,
+        FinalizeEvmContractInput, GossipPriorityBid, Hip3LiquidatorTransferAction,
+        LinkStakingUserAction, ModifyAction, OkResponse, Response, SendToEvmWithDataAction,
+        SignersConfig, SpotUserAction, StakingLinkDisableTradingUserAction, SubAccountModify,
+        SubAccountSpotTransfer, SubAccountTransfer, ToggleSpotDusting, TokenDelegateAction,
+        TopUpIsolatedOnlyMargin, TrailingStop, TwapOrderParams, UpdateIsolatedMargin,
+        UpdateLeverage, UsdClassTransferAction, UserOutcomeAction, UserPortfolioMarginAction,
+        ValidatorL1Stream, VaultDistribute, VaultModify, VaultTransfer, Withdraw3Action,
     },
     deploy::{ActivateOutcomeDeployer, OutcomeDeploy, PerpDeployAction, SpotDeployAction},
     mainnet_url, testnet_url,
@@ -2701,7 +2701,7 @@ impl Client {
         self.send(req).await?.into_default()
     }
 
-    /// Stake native token (HYPE).
+    /// Stake native token (HYPE) from spot into staking (`cDeposit`, user-signed EIP-712).
     pub async fn stake<S: SignerSync>(
         &self,
         signer: &S,
@@ -2710,12 +2710,31 @@ impl Client {
         vault_address: Option<Address>,
         expires_after: Option<DateTime<Utc>>,
     ) -> Result<()> {
-        let action = Action::CDeposit { wei };
+        let action = Action::CDeposit(CDepositAction {
+            signature_chain_id: self.chain.arbitrum_id().to_owned(),
+            hyperliquid_chain: self.chain,
+            wei,
+            nonce,
+        });
         let req = action.sign_sync(signer, nonce, vault_address, expires_after, self.chain)?;
         self.send(req).await?.into_default()
     }
 
-    /// Unstake native token (HYPE). 7-day queue.
+    /// Stake native token (HYPE) from spot into staking (`cDeposit2`, agent-signed L1 action).
+    pub async fn stake_agent<S: SignerSync>(
+        &self,
+        signer: &S,
+        wei: u64,
+        nonce: u64,
+        vault_address: Option<Address>,
+        expires_after: Option<DateTime<Utc>>,
+    ) -> Result<()> {
+        let action = Action::CDeposit2 { wei };
+        let req = action.sign_sync(signer, nonce, vault_address, expires_after, self.chain)?;
+        self.send(req).await?.into_default()
+    }
+
+    /// Unstake native token (HYPE) from staking into spot (`cWithdraw`, user-signed EIP-712). 7-day queue.
     pub async fn unstake<S: SignerSync>(
         &self,
         signer: &S,
@@ -2724,7 +2743,12 @@ impl Client {
         vault_address: Option<Address>,
         expires_after: Option<DateTime<Utc>>,
     ) -> Result<()> {
-        let action = Action::CWithdraw { wei };
+        let action = Action::CWithdraw(CWithdrawAction {
+            signature_chain_id: self.chain.arbitrum_id().to_owned(),
+            hyperliquid_chain: self.chain,
+            wei,
+            nonce,
+        });
         let req = action.sign_sync(signer, nonce, vault_address, expires_after, self.chain)?;
         self.send(req).await?.into_default()
     }
