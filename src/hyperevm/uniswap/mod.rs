@@ -113,6 +113,22 @@ fn tick_to_sqrt_price(tick: i64) -> Decimal {
     price.sqrt().unwrap()
 }
 
+fn tick_in_range<T: Ord>(tick: T, lower: T, upper: T) -> bool {
+    (lower..upper).contains(&tick)
+}
+
+#[cfg(test)]
+mod range_tests {
+    use super::tick_in_range;
+
+    #[test]
+    fn position_range_is_half_open() {
+        for (tick, expected) in [(-11, false), (-10, true), (0, true), (10, false), (11, false)] {
+            assert_eq!(tick_in_range(tick, -10, 10), expected, "tick {tick}");
+        }
+    }
+}
+
 // https://github.com/Uniswap/v3-core/blob/d8b1c635c275d2a9450bd6a78f3fa2484fef73eb/contracts/libraries/TickMath.sol
 fn get_amounts_from_liquidity(
     liquidity: u128,
@@ -467,7 +483,7 @@ where
             let pool = self.pool(pool_address);
             let slot0 = pool.slot0().call().await?;
 
-            let in_range = slot0.tick <= pos.tickUpper && slot0.tick >= pos.tickLower;
+            let in_range = tick_in_range(slot0.tick, pos.tickLower, pos.tickUpper);
 
             let (amount0_raw, amount1_raw) = get_amounts_from_liquidity(
                 pos.liquidity as u128,
