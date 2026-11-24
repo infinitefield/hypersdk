@@ -21,7 +21,7 @@ include = [
 ]
 
 [dependencies]
-hypersdk = { path = "..", version = "0.3.1", features = ["morpho"] }
+hypersdk = { path = "..", version = "0.3.2", features = ["morpho"] }
 clap = { version = "4.6.9", features = ["derive", "env"] }
 tokio = { version = "1.54.1", features = [
     "rt",
