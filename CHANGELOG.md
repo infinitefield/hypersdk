@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `hyperevm::uniswap::sqrt_x96_to_price` no longer panics when `decimals0 + decimals1 > 28` or truncates fractional prices before squaring, and `get_pool_price` and `pool_price_from` return an error when a pool price exceeds `Decimal::MAX` (#111).
 - `userFills` snapshots no longer fail when an older liquidation fill omits `liquidatedUser` (#107).
 - `to_wei` no longer returns a value ten times too small for amounts whose scaled mantissa needs more than 96 bits (e.g. `to_wei(dec!(100_000_000_000), 18)`), and `from_wei` no longer panics above 2^96 wei or with more than 28 decimals.
 

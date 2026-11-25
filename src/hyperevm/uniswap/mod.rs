@@ -76,10 +76,10 @@ use std::{
 };
 
 use alloy::{
-    primitives::{U160, U256, aliases::U24},
+    primitives::{U160, U256, U512, aliases::U24},
     transports::TransportError,
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rust_decimal::{Decimal, MathematicalOps, dec, prelude::ToPrimitive};
 
 use crate::hyperevm::{
@@ -169,7 +169,8 @@ pub fn sqrt_price_limit_x96(price: Decimal, scale: u32) -> U160 {
 
 /// Converts Uniswap's sqrtPriceX96 format to a decimal price.
 ///
-/// This is an approximation since [`Decimal`] can't store the full Q64.96 precision.
+/// Computes `(sqrt_price_x96 / 2^96)^2 * 10^(decimals0 - decimals1)` and rounds
+/// only at the final conversion to [`Decimal`].
 ///
 /// # Parameters
 ///
@@ -180,6 +181,10 @@ pub fn sqrt_price_limit_x96(price: Decimal, scale: u32) -> U160 {
 /// # Returns
 ///
 /// The price of token0 in terms of token1.
+///
+/// # Panics
+///
+/// Panics if the resulting price exceeds [`Decimal::MAX`].
 ///
 /// # Example
 ///
@@ -193,13 +198,68 @@ pub fn sqrt_price_limit_x96(price: Decimal, scale: u32) -> U160 {
 /// ```
 #[must_use]
 pub fn sqrt_x96_to_price(sqrt_price_x96: U160, decimals0: u32, decimals1: u32) -> Decimal {
-    let q96 = U160::from(2).pow(U160::from(96));
+    price_from_sqrt_x96(sqrt_price_x96, decimals0, decimals1).unwrap_or_else(|| {
+        panic!(
+            "sqrt_x96_to_price: {sqrt_price_x96} with decimals ({decimals0}, {decimals1}) exceeds Decimal::MAX"
+        )
+    })
+}
 
-    // Scale sqrt_price to avoid precision loss
-    let sqrt_price_scaled = sqrt_price_x96 * U160::from(10).pow(U160::from(decimals0));
+fn price_from_sqrt_x96(sqrt_price_x96: U160, decimals0: u32, decimals1: u32) -> Option<Decimal> {
+    if sqrt_price_x96.is_zero() {
+        return Some(Decimal::ZERO);
+    }
 
-    let price = (sqrt_price_scaled / q96).pow(U160::from(2));
-    Decimal::from_i128_with_scale(price.to::<i128>(), decimals0 + decimals1)
+    let exp10 = i64::from(decimals0) - i64::from(decimals1);
+    // For 1 <= sqrt_price_x96 < 2^160, (sqrt_price_x96 / 2^96)^2 lies in [2^-192, 2^128):
+    // below 10^-67 the product is under 0.5 * 10^-28 and rounds to zero; above 10^86 it
+    // exceeds Decimal::MAX (~7.92e28).
+    if exp10 < -67 {
+        return Some(Decimal::ZERO);
+    }
+    if exp10 > 86 {
+        return None;
+    }
+
+    let s = U512::from(sqrt_price_x96);
+    let s_sq = s * s;
+
+    for scale in (0..=Decimal::MAX_SCALE).rev() {
+        if let Some(price) = round_sqrt_x96_sq_at_scale(s_sq, exp10 + i64::from(scale), scale) {
+            return Some(price);
+        }
+    }
+    None
+}
+
+fn round_sqrt_x96_sq_at_scale(s_sq: U512, exp: i64, scale: u32) -> Option<Decimal> {
+    let rounded = if exp >= 0 {
+        let pow10 = U512::from(10u8).checked_pow(U512::from(exp as u64))?;
+        let num = s_sq.checked_mul(pow10)?;
+        let q: U512 = num >> 192;
+        let rem = num & ((U512::ONE << 192) - U512::ONE);
+        let half = U512::ONE << 191;
+        if rem > half || (rem == half && q.bit(0)) {
+            q + U512::ONE
+        } else {
+            q
+        }
+    } else {
+        let pow10 = U512::from(10u8).checked_pow(U512::from((-exp) as u64))?;
+        let den = pow10.checked_shl(192)?;
+        let (q, rem) = s_sq.div_rem(den);
+        let half: U512 = den >> 1;
+        if rem > half || (rem == half && q.bit(0)) {
+            q + U512::ONE
+        } else {
+            q
+        }
+    };
+
+    let mantissa = i128::try_from(rounded).ok()?;
+    Decimal::try_from_i128_with_scale(mantissa, scale)
+        .ok()
+        .map(|d| d.normalize())
 }
 
 /// Uniswap V3 contract addresses.
@@ -577,11 +637,12 @@ where
         let pool = self.pool(pool_address);
         let slot0 = pool.slot0().call().await?;
 
-        Ok(sqrt_x96_to_price(
+        price_from_sqrt_x96(
             slot0.sqrtPriceX96,
-            decimals0 as u32,
-            decimals1 as u32,
-        ))
+            u32::from(decimals0),
+            u32::from(decimals1),
+        )
+        .context("pool price exceeds Decimal::MAX")
     }
 
     /// Get the pool's price in a Decimal approximation.
@@ -610,11 +671,92 @@ where
         let pool = self.pool(pool_address);
         let slot0 = pool.slot0().call().await?;
 
-        Ok(sqrt_x96_to_price(
+        price_from_sqrt_x96(
             slot0.sqrtPriceX96,
-            decimals0 as u32,
-            decimals1 as u32,
-        ))
+            u32::from(decimals0),
+            u32::from(decimals1),
+        )
+        .context("pool price exceeds Decimal::MAX")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use alloy::primitives::U160;
+    use rust_decimal::{Decimal, dec};
+
+    use super::{price_from_sqrt_x96, sqrt_x96_to_price};
+
+    #[test]
+    fn parity_with_equal_18_decimals_returns_one() {
+        let price = sqrt_x96_to_price(U160::from(1u8) << 96, 18, 18);
+        assert_eq!(price, Decimal::ONE);
+        assert_eq!(price.scale(), 0);
+    }
+
+    #[test]
+    fn fractional_prices_are_not_truncated_before_squaring() {
+        assert_eq!(sqrt_x96_to_price(U160::from(1u8) << 95, 0, 0), dec!(0.25));
+        assert_eq!(sqrt_x96_to_price(U160::from(3u8) << 95, 0, 0), dec!(2.25));
+        // (2^-10)^2 = 2^-20 = 0.00000095367431640625 (exact in 20 decimal places).
+        assert_eq!(
+            sqrt_x96_to_price(U160::from(1u8) << 86, 0, 0),
+            dec!(0.00000095367431640625)
+        );
+        // ((2^96 - 1) / 3 / 2^96)^2 = 1/9 to 28 decimal places.
+        assert_eq!(
+            sqrt_x96_to_price((U160::from(1u8) << 96) / U160::from(3u8), 18, 18),
+            dec!(0.1111111111111111111111111111)
+        );
+    }
+
+    #[test]
+    fn handles_decimal_offsets_zero_and_large_ratios() {
+        assert_eq!(sqrt_x96_to_price(U160::ZERO, 18, 18), Decimal::ZERO);
+        assert_eq!(sqrt_x96_to_price(U160::ZERO, u32::MAX, 0), Decimal::ZERO);
+        assert_eq!(
+            sqrt_x96_to_price(U160::from(1u8) << 96, u32::MAX, u32::MAX),
+            Decimal::ONE
+        );
+        // 50^2 = 2500 on an 18/18 pair; previously overflowed U160 when scaling by 10^18.
+        assert_eq!(
+            sqrt_x96_to_price(U160::from(50u8) << 96, 18, 18),
+            dec!(2500)
+        );
+        assert_eq!(
+            sqrt_x96_to_price(U160::from(1u8) << 96, 18, 6),
+            dec!(1_000_000_000_000)
+        );
+        assert_eq!(
+            sqrt_x96_to_price(U160::from(1u8) << 96, 6, 18),
+            dec!(0.000000000001)
+        );
+        assert_eq!(
+            sqrt_x96_to_price(U160::from(20_000u32) << 96, 6, 18),
+            dec!(0.0004)
+        );
+        // Values below 0.5 * 10^-28 round to zero instead of panicking.
+        assert_eq!(sqrt_x96_to_price(U160::from(1u8), 18, 6), Decimal::ZERO);
+        assert_eq!(sqrt_x96_to_price(U160::MAX, 0, u32::MAX), Decimal::ZERO);
+    }
+
+    #[test]
+    fn decimal_max_boundary() {
+        // ((2^144 - 2^47) / 2^96)^2 = 2^96 - 1 + 2^-98, which rounds to Decimal::MAX.
+        let at_max = (U160::from(1u8) << 144) - (U160::from(1u8) << 47);
+        assert_eq!(sqrt_x96_to_price(at_max, 0, 0), Decimal::MAX);
+
+        // ((2^144 - 2^46) / 2^96)^2 = 2^96 - 0.5 + 2^-100, which rounds to 2^96 > Decimal::MAX.
+        let past_max = (U160::from(1u8) << 144) - (U160::from(1u8) << 46);
+        assert_eq!(price_from_sqrt_x96(past_max, 0, 0), None);
+        assert_eq!(price_from_sqrt_x96(U160::MAX, 0, 0), None);
+        assert_eq!(price_from_sqrt_x96(U160::from(1u8) << 96, 29, 0), None);
+    }
+
+    #[test]
+    #[should_panic(expected = "exceeds Decimal::MAX")]
+    fn panics_past_decimal_max() {
+        let _ = sqrt_x96_to_price(U160::MAX, 0, 0);
     }
 }
 
