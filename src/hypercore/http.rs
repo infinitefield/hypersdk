@@ -3702,6 +3702,10 @@ where
     /// - `send`: The UsdSend parameters (destination, amount, time). The chain comes
     ///   from the client, and `send.time` is used as the action nonce.
     ///
+    /// Signatures are collected with `send.time` as the nonce, and the transaction is
+    /// submitted with the nonce passed to [`multi_sig`](Client::multi_sig), so both
+    /// must be the same value.
+    ///
     /// # Example
     ///
     /// ```no_run
@@ -3713,12 +3717,13 @@ where
     /// #     lead_signer: PrivateKeySigner,
     /// #     signers: Vec<PrivateKeySigner>,
     /// #     multisig_address: Address,
+    /// #     destination: Address,
     /// # ) -> anyhow::Result<()> {
     /// let client = hypercore::mainnet();
     /// let nonce = chrono::Utc::now().timestamp_millis() as u64;
     ///
     /// let send = UsdSend {
-    ///     destination: "0x0000000000000000000000000000000000000001".parse()?,
+    ///     destination,
     ///     amount: dec!(100),
     ///     time: nonce,
     /// };
@@ -3779,6 +3784,9 @@ where
     /// - `send`: The SendAsset parameters (destination, token, amount, source/dest DEX, etc.).
     ///   The chain comes from the client, and `send.nonce` is used as the action nonce.
     ///
+    /// Signatures are collected with `send.nonce`, and the transaction is submitted with
+    /// the nonce passed to [`multi_sig`](Client::multi_sig), so both must be the same value.
+    ///
     /// # Example
     ///
     /// ```no_run
@@ -3793,6 +3801,7 @@ where
     /// #     lead_signer: PrivateKeySigner,
     /// #     signers: Vec<PrivateKeySigner>,
     /// #     multisig_address: Address,
+    /// #     destination: Address,
     /// # ) -> anyhow::Result<()> {
     /// let client = hypercore::mainnet();
     /// let nonce = chrono::Utc::now().timestamp_millis() as u64;
@@ -3802,7 +3811,7 @@ where
     /// let usdc = tokens.iter().find(|t| t.name == "USDC").unwrap();
     ///
     /// let send = SendAsset {
-    ///     destination: "0x0000000000000000000000000000000000000001".parse()?,
+    ///     destination,
     ///     source_dex: AssetTarget::Perp,      // perp balance
     ///     destination_dex: AssetTarget::Perp, // recipient's perp balance
     ///     token: SendToken(usdc.clone()),
