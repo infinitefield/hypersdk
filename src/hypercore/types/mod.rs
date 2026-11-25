@@ -2328,7 +2328,12 @@ impl SpotSend {
     /// use hypersdk::hypercore::{Chain, SpotToken, types::{SendToken, SpotSend}};
     /// use rust_decimal::dec;
     ///
-    /// # fn example(purr_token: SpotToken) -> anyhow::Result<()> {
+    /// # fn main() -> anyhow::Result<()> {
+    /// # let purr_token = SpotToken {
+    /// #     name: "PURR".into(), index: 1, token_id: Default::default(),
+    /// #     evm_contract: None, cross_chain_address: None,
+    /// #     sz_decimals: 0, wei_decimals: 5, evm_extra_decimals: 13,
+    /// # };
     /// let send = SpotSend {
     ///     destination: "0x0000000000000000000000000000000000000001".parse()?,
     ///     token: SendToken(purr_token),
@@ -2337,9 +2342,9 @@ impl SpotSend {
     /// };
     ///
     /// let action = send.into_action(Chain::Mainnet);
+    /// assert_eq!(action.signature_chain_id, "0xa4b1");
     /// # Ok(())
     /// # }
-    /// # fn main() {}
     /// ```
     #[must_use]
     pub fn into_action(self, chain: Chain) -> SpotSendAction {
@@ -2426,7 +2431,12 @@ impl SendAsset {
     /// };
     /// use rust_decimal::dec;
     ///
-    /// # fn example(token: SpotToken) -> anyhow::Result<()> {
+    /// # fn main() -> anyhow::Result<()> {
+    /// # let token = SpotToken {
+    /// #     name: "PURR".into(), index: 1, token_id: Default::default(),
+    /// #     evm_contract: None, cross_chain_address: None,
+    /// #     sz_decimals: 0, wei_decimals: 5, evm_extra_decimals: 13,
+    /// # };
     /// let send = SendAsset {
     ///     destination: "0x0000000000000000000000000000000000000001".parse()?,
     ///     source_dex: AssetTarget::Perp,
@@ -2438,9 +2448,9 @@ impl SendAsset {
     /// };
     ///
     /// let action = send.into_action(Chain::Mainnet);
+    /// assert_eq!(action.signature_chain_id, "0xa4b1");
     /// # Ok(())
     /// # }
-    /// # fn main() {}
     /// ```
     #[must_use]
     pub fn into_action(self, chain: Chain) -> SendAssetAction {
