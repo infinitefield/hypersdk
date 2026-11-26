@@ -499,19 +499,18 @@ impl Chain {
 /// - [`Chain::arbitrum_id()`]: Helper method to get the correct ID based on chain
 pub const ARBITRUM_MAINNET_CHAIN_ID: &str = "0xa4b1";
 
-/// Hyperliquid testnet chain ID for EIP-712 signatures.
+/// Arbitrum Sepolia chain ID for EIP-712 signatures on testnet.
 ///
 /// This chain ID is used in EIP-712 signature domains for testnet operations
 /// involving asset transfers and cross-chain operations on Hyperliquid testnet.
 ///
 /// # Value
 ///
-/// `0x66eee` - The Hyperliquid testnet chain ID (decimal: 421614)
+/// `0x66eee` - The Arbitrum Sepolia chain ID (decimal: 421614)
 ///
 /// # Important Notes
 ///
-/// - This is **not** the Arbitrum testnet chain ID
-/// - This is Hyperliquid's custom chain ID for testnet operations
+/// - Used as the signature chain ID for testnet operations
 /// - Also used for multisig operations on both mainnet and testnet
 ///
 /// # Usage

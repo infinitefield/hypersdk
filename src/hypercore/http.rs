@@ -3699,21 +3699,33 @@ where
     ///
     /// # Parameters
     ///
-    /// - `send`: The UsdSend parameters (destination, amount, time, chain, etc.)
+    /// - `send`: The UsdSend parameters (destination, amount, time). The chain comes
+    ///   from the client, and `send.time` is used as the action nonce.
+    ///
+    /// Signatures are collected with `send.time` as the nonce, and the transaction is
+    /// submitted with the nonce passed to [`multi_sig`](Client::multi_sig), so both
+    /// must be the same value.
     ///
     /// # Example
     ///
-    /// ```rust,ignore
-    /// use hypersdk::hypercore::types::{UsdSend, Chain};
-    /// use hypersdk::hypercore::ARBITRUM_SIGNATURE_CHAIN_ID;
+    /// ```no_run
+    /// use hypersdk::Address;
+    /// use hypersdk::hypercore::{self, PrivateKeySigner, types::UsdSend};
     /// use rust_decimal::dec;
     ///
+    /// # async fn example(
+    /// #     lead_signer: PrivateKeySigner,
+    /// #     signers: Vec<PrivateKeySigner>,
+    /// #     multisig_address: Address,
+    /// #     destination: Address,
+    /// # ) -> anyhow::Result<()> {
+    /// let client = hypercore::mainnet();
+    /// let nonce = chrono::Utc::now().timestamp_millis() as u64;
+    ///
     /// let send = UsdSend {
-    ///     hyperliquid_chain: Chain::Mainnet,
-    ///     signature_chain_id: ARBITRUM_SIGNATURE_CHAIN_ID,
-    ///     destination: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb".parse()?,
+    ///     destination,
     ///     amount: dec!(100),
-    ///     time: chrono::Utc::now().timestamp_millis() as u64,
+    ///     time: nonce,
     /// };
     ///
     /// client
@@ -3723,6 +3735,8 @@ where
     ///     .await?;
     ///
     /// println!("Successfully sent 100 USDC from multisig account");
+    /// # Ok(())
+    /// # }
     /// ```
     ///
     /// # Notes
@@ -3767,29 +3781,43 @@ where
     ///
     /// # Parameters
     ///
-    /// - `send`: The SendAsset parameters (destination, token, amount, source/dest DEX, etc.)
+    /// - `send`: The SendAsset parameters (destination, token, amount, source/dest DEX, etc.).
+    ///   The chain comes from the client, and `send.nonce` is used as the action nonce.
+    ///
+    /// Signatures are collected with `send.nonce`, and the transaction is submitted with
+    /// the nonce passed to [`multi_sig`](Client::multi_sig), so both must be the same value.
     ///
     /// # Example
     ///
-    /// ```rust,ignore
-    /// use hypersdk::hypercore::types::{SendAsset, SendToken};
-    /// use hypersdk::hypercore::ARBITRUM_MAINNET_CHAIN_ID;
+    /// ```no_run
+    /// use hypersdk::Address;
+    /// use hypersdk::hypercore::{
+    ///     self, PrivateKeySigner,
+    ///     types::{AssetTarget, SendAsset, SendToken},
+    /// };
     /// use rust_decimal::dec;
     ///
+    /// # async fn example(
+    /// #     lead_signer: PrivateKeySigner,
+    /// #     signers: Vec<PrivateKeySigner>,
+    /// #     multisig_address: Address,
+    /// #     destination: Address,
+    /// # ) -> anyhow::Result<()> {
+    /// let client = hypercore::mainnet();
+    /// let nonce = chrono::Utc::now().timestamp_millis() as u64;
+    ///
     /// // Get the token info first
-    /// let tokens = client.spot_meta().await?;
+    /// let tokens = client.spot_tokens().await?;
     /// let usdc = tokens.iter().find(|t| t.name == "USDC").unwrap();
     ///
     /// let send = SendAsset {
-    ///     hyperliquid_chain: Chain::Mainnet,
-    ///     signature_chain_id: ARBITRUM_MAINNET_CHAIN_ID,
-    ///     destination: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb".parse()?,
-    ///     source_dex: "".to_string(),      // Empty for perp balance
-    ///     destination_dex: "".to_string(), // Empty for recipient's perp balance
+    ///     destination,
+    ///     source_dex: AssetTarget::Perp,      // perp balance
+    ///     destination_dex: AssetTarget::Perp, // recipient's perp balance
     ///     token: SendToken(usdc.clone()),
-    ///     from_sub_account: "".to_string(), // Empty for main account
+    ///     from_sub_account: String::new(),    // empty for the main account
     ///     amount: dec!(100),
-    ///     nonce: chrono::Utc::now().timestamp_millis() as u64,
+    ///     nonce,
     /// };
     ///
     /// client
@@ -3799,13 +3827,15 @@ where
     ///     .await?;
     ///
     /// println!("Successfully sent 100 USDC from multisig account");
+    /// # Ok(())
+    /// # }
     /// ```
     ///
     /// # Notes
     ///
     /// - Uses EIP-712 typed data signatures (different from order placement which uses RMP)
-    /// - Source/destination DEX can be: "" (perp balance), "spot", or other DEX identifiers
-    /// - Token must be obtained from `spot_meta()` API call
+    /// - Source/destination DEX can be [`AssetTarget::Perp`], [`AssetTarget::Spot`], or a HIP-3 [`AssetTarget::Dex`]
+    /// - Token must be obtained from the `spot_tokens()` API call
     /// - Nonce should be unique for each transaction (typically current timestamp in ms)
     pub async fn send_asset(&self, send: SendAsset) -> Result<()> {
         let nonce = send.nonce;

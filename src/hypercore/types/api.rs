@@ -685,17 +685,20 @@ impl Action {
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// use hypersdk::hypercore::types::raw::UsdSendAction;
+/// ```
+/// use hypersdk::hypercore::{ARBITRUM_MAINNET_CHAIN_ID, Chain, types::api::UsdSendAction};
 /// use rust_decimal::dec;
 ///
+/// # fn main() -> anyhow::Result<()> {
 /// let send = UsdSendAction {
-///     signature_chain_id: ARBITRUM_MAINNET_CHAIN_ID,
+///     signature_chain_id: ARBITRUM_MAINNET_CHAIN_ID.to_owned(),
 ///     hyperliquid_chain: Chain::Mainnet,
-///     destination: "0x1234...".parse()?,
+///     destination: "0x0000000000000000000000000000000000000001".parse()?,
 ///     amount: dec!(100), // 100 USDC
 ///     time: chrono::Utc::now().timestamp_millis() as u64,
 /// };
+/// # Ok(())
+/// # }
 /// ```
 ///
 /// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#core-usdc-transfer>
@@ -731,24 +734,27 @@ pub struct UsdSendAction {
 /// - `signature_chain_id`: The chain ID for signature verification (use [`crate::hypercore::ARBITRUM_MAINNET_CHAIN_ID`] or [`crate::hypercore::ARBITRUM_TESTNET_CHAIN_ID`])
 /// - `hyperliquid_chain`: Whether this is mainnet or testnet
 /// - `destination`: The recipient's address
-/// - `token`: The spot token to send (wrapped in `SendToken`)
+/// - `token`: The spot token to send, as `NAME:TOKEN_ID` (the `Display` form of `SendToken`)
 /// - `amount`: Amount to send (in token's native units)
 /// - `time`: Timestamp in milliseconds (should match the nonce)
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// use hypersdk::hypercore::types::raw::{SpotSendAction, SendToken};
+/// ```
+/// use hypersdk::hypercore::{ARBITRUM_MAINNET_CHAIN_ID, Chain, types::api::SpotSendAction};
 /// use rust_decimal::dec;
 ///
+/// # fn main() -> anyhow::Result<()> {
 /// let send = SpotSendAction {
-///     signature_chain_id: ARBITRUM_MAINNET_CHAIN_ID,
+///     signature_chain_id: ARBITRUM_MAINNET_CHAIN_ID.to_owned(),
 ///     hyperliquid_chain: Chain::Mainnet,
-///     destination: "0x1234...".parse()?,
-///     token: SendToken(purr_token),
+///     destination: "0x0000000000000000000000000000000000000001".parse()?,
+///     token: "PURR:0xc4bf3f870c0e9465323c0b6ed28096c2".to_owned(),
 ///     amount: dec!(1000),
 ///     time: chrono::Utc::now().timestamp_millis() as u64,
 /// };
+/// # Ok(())
+/// # }
 /// ```
 ///
 /// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#core-spot-transfer>

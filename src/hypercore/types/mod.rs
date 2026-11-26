@@ -2259,21 +2259,29 @@ pub struct UsdSend {
 impl UsdSend {
     /// Converts this into a signable `UsdSendAction`.
     ///
+    /// The signature chain ID is taken from `chain` (see [`Chain::arbitrum_id`]).
+    ///
     /// # Parameters
     ///
-    /// - `signature_chain_id`: The chain ID for signature verification (e.g., [`super::ARBITRUM_MAINNET_CHAIN_ID`])
     /// - `chain`: Whether this is mainnet or testnet
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```
+    /// use hypersdk::hypercore::{Chain, types::UsdSend};
+    /// use rust_decimal::dec;
+    ///
+    /// # fn main() -> anyhow::Result<()> {
     /// let send = UsdSend {
-    ///     destination: "0x1234...".parse()?,
+    ///     destination: "0x0000000000000000000000000000000000000001".parse()?,
     ///     amount: dec!(100),
     ///     time: chrono::Utc::now().timestamp_millis() as u64,
     /// };
     ///
-    /// let action = send.into_action(ARBITRUM_MAINNET_CHAIN_ID, Chain::Mainnet);
+    /// let action = send.into_action(Chain::Mainnet);
+    /// assert_eq!(action.signature_chain_id, "0xa4b1");
+    /// # Ok(())
+    /// # }
     /// ```
     #[must_use]
     pub fn into_action(self, chain: Chain) -> UsdSendAction {
@@ -2308,22 +2316,35 @@ pub struct SpotSend {
 impl SpotSend {
     /// Converts this into a signable `SpotSendAction`.
     ///
+    /// The signature chain ID is taken from `chain` (see [`Chain::arbitrum_id`]).
+    ///
     /// # Parameters
     ///
-    /// - `signature_chain_id`: The chain ID for signature verification (e.g., [`super::ARBITRUM_MAINNET_CHAIN_ID`])
     /// - `chain`: Whether this is mainnet or testnet
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```
+    /// use hypersdk::hypercore::{Chain, SpotToken, types::{SendToken, SpotSend}};
+    /// use rust_decimal::dec;
+    ///
+    /// # fn main() -> anyhow::Result<()> {
+    /// # let purr_token = SpotToken {
+    /// #     name: "PURR".into(), index: 1, token_id: Default::default(),
+    /// #     evm_contract: None, cross_chain_address: None,
+    /// #     sz_decimals: 0, wei_decimals: 5, evm_extra_decimals: 13,
+    /// # };
     /// let send = SpotSend {
-    ///     destination: "0x1234...".parse()?,
+    ///     destination: "0x0000000000000000000000000000000000000001".parse()?,
     ///     token: SendToken(purr_token),
     ///     amount: dec!(1000),
     ///     time: chrono::Utc::now().timestamp_millis() as u64,
     /// };
     ///
-    /// let action = send.into_action(ARBITRUM_MAINNET_CHAIN_ID, Chain::Mainnet);
+    /// let action = send.into_action(Chain::Mainnet);
+    /// assert_eq!(action.signature_chain_id, "0xa4b1");
+    /// # Ok(())
+    /// # }
     /// ```
     #[must_use]
     pub fn into_action(self, chain: Chain) -> SpotSendAction {
@@ -2395,25 +2416,41 @@ pub struct SendAsset {
 impl SendAsset {
     /// Converts this into a signable `SendAssetAction`.
     ///
+    /// The signature chain ID is taken from `chain` (see [`Chain::arbitrum_id`]).
+    ///
     /// # Parameters
     ///
-    /// - `signature_chain_id`: The chain ID for signature verification (e.g., [`super::ARBITRUM_MAINNET_CHAIN_ID`])
     /// - `chain`: Whether this is mainnet or testnet
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```
+    /// use hypersdk::hypercore::{
+    ///     Chain, SpotToken,
+    ///     types::{AssetTarget, SendAsset, SendToken},
+    /// };
+    /// use rust_decimal::dec;
+    ///
+    /// # fn main() -> anyhow::Result<()> {
+    /// # let token = SpotToken {
+    /// #     name: "PURR".into(), index: 1, token_id: Default::default(),
+    /// #     evm_contract: None, cross_chain_address: None,
+    /// #     sz_decimals: 0, wei_decimals: 5, evm_extra_decimals: 13,
+    /// # };
     /// let send = SendAsset {
-    ///     destination: "0x1234...".parse()?,
-    ///     source_dex: String::new(),
-    ///     destination_dex: String::new(),
+    ///     destination: "0x0000000000000000000000000000000000000001".parse()?,
+    ///     source_dex: AssetTarget::Perp,
+    ///     destination_dex: AssetTarget::Spot,
     ///     token: SendToken(token),
     ///     amount: dec!(500),
     ///     from_sub_account: String::new(),
     ///     nonce: 12345,
     /// };
     ///
-    /// let action = send.into_action(ARBITRUM_MAINNET_CHAIN_ID, Chain::Mainnet);
+    /// let action = send.into_action(Chain::Mainnet);
+    /// assert_eq!(action.signature_chain_id, "0xa4b1");
+    /// # Ok(())
+    /// # }
     /// ```
     #[must_use]
     pub fn into_action(self, chain: Chain) -> SendAssetAction {
