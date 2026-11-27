@@ -40,6 +40,11 @@ for chain,chain_id in [('Mainnet',42161),('Testnet',421614)]:
         connection = ref.action_hash([user,lead,action],vault,nonce,expiry)
         data = ref.l1_payload(ref.construct_phantom_agent(connection,chain=='Mainnet'))
         contexts.append(dict(chain=chain,nonce=nonce,action=action,vault=vault,expiresAfter=expiry,prehash=encoded(data)))
+for chain,chain_id in [('Mainnet',42161),('Testnet',421614)]:
+    action = dict(type='withdraw3', signatureChainId=hex(chain_id), hyperliquidChain=chain, destination=other, amount='10.5', time=nonce)
+    normal = ref.user_signed_payload('HyperliquidTransaction:Withdraw', ref.WITHDRAW_SIGN_TYPES, action)
+    multi = ref.user_signed_payload('HyperliquidTransaction:Withdraw', ref.add_multi_sig_types(ref.WITHDRAW_SIGN_TYPES), ref.add_multi_sig_fields(action,user,lead))
+    cases.append(dict(chain=chain,nonce=nonce,action=action,prehash=encoded(normal),multisigPrehash=encoded(multi)))
 fixture = dict(source='hyperliquid-python-sdk '+version('hyperliquid-python-sdk')+' hyperliquid/utils/signing.py',multisigUser=user,leader=lead,userSigned=cases,l1Contexts=contexts)
 Path('src/hypercore/testdata/signing.json').write_text(json.dumps(fixture,indent=2)+'\n')
 print(fixture['source'], ':', len(cases), 'user-signed and',len(contexts),'L1 fixtures')
