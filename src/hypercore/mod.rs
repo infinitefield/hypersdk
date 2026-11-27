@@ -1897,11 +1897,7 @@ pub async fn perp_markets(
         .await
         .context("meta")?;
     let data: PerpTokens = resp.json().await?;
-    let collateral = spot
-        .tokens
-        .get(data.collateral_token)
-        .context("collateral token index out of bounds")?;
-    let collateral = SpotToken::from(collateral.clone());
+    let collateral = collateral_token(&spot.tokens, data.collateral_token)?;
     let dex_index = dex.as_ref().map(|dex| dex.index).unwrap_or_default();
 
     let perps = data
@@ -1929,6 +1925,19 @@ pub async fn perp_markets(
         .collect();
 
     Ok(perps)
+}
+
+/// Resolves the `collateralToken` of a perp dex.
+///
+/// It is the token's `index` field, not its position in the `tokens` array. Token indices
+/// have gaps, so the two only agree for the tokens listed before the first gap.
+#[cfg(feature = "http")]
+fn collateral_token(tokens: &[Token], index: usize) -> anyhow::Result<SpotToken> {
+    let token = tokens
+        .iter()
+        .find(|token| token.index == index)
+        .context("collateral token index not found")?;
+    Ok(SpotToken::from(token.clone()))
 }
 
 /// Fetches outcome market metadata from HyperCore.
@@ -2388,6 +2397,47 @@ mod tests {
         assert!(!perps.is_empty());
         assert!(perps.iter().any(|m| m.name == "BTC"));
         assert!(perps.iter().any(|m| m.name == "ETH"));
+    }
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn collateral_token_is_matched_by_index() {
+        // Trimmed testnet `spotMeta`. The `par` dex reports `collateralToken: 3032`, which is
+        // the index of USDPR and not a position: the full array has 1682 tokens.
+        let spot: SpotTokens = serde_json::from_str(
+            r#"{
+                "universe": [],
+                "tokens": [
+                    {
+                        "name": "USDC",
+                        "szDecimals": 8,
+                        "weiDecimals": 8,
+                        "index": 0,
+                        "tokenId": "0xeb62eee3685fc4c43992febcd9e75443",
+                        "isCanonical": true,
+                        "evmContract": null,
+                        "fullName": null
+                    },
+                    {
+                        "name": "USDPR",
+                        "szDecimals": 2,
+                        "weiDecimals": 8,
+                        "index": 3032,
+                        "tokenId": "0x8b36c9269f2331c61c83e15884b5835a",
+                        "isCanonical": false,
+                        "evmContract": null,
+                        "fullName": "Perpetual Alpha USD (rehearsal)"
+                    }
+                ]
+            }"#,
+        )
+        .unwrap();
+
+        let collateral = collateral_token(&spot.tokens, 3032).unwrap();
+        assert_eq!(collateral.name, "USDPR");
+        assert_eq!(collateral.index, 3032);
+        // USDPR sits at position 1, but no token has index 1.
+        assert!(collateral_token(&spot.tokens, 1).is_err());
     }
 
     #[cfg(feature = "http")]
