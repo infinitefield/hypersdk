@@ -393,7 +393,7 @@ impl Action {
             Action::StakingLinkDisableTradingUser(inner) => {
                 get_typed_data::<solidity::StakingLinkDisableTradingUser>(inner, chain, None)
             }
-            Action::Withdraw3(inner) => get_typed_data::<solidity::Withdraw3>(inner, chain, None),
+            Action::Withdraw3(inner) => get_typed_data::<solidity::Withdraw>(inner, chain, None),
             Action::UsdClassTransfer(inner) => {
                 get_typed_data::<solidity::UsdClassTransfer>(inner, chain, None)
             }
