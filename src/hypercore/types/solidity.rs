@@ -131,7 +131,9 @@ sol! {
         uint64 nonce;
     }
 
-    struct Withdraw3 {
+    // The EIP-712 type is `HyperliquidTransaction:Withdraw`, not `Withdraw3`
+    // (the action's `type` tag).
+    struct Withdraw {
         string hyperliquidChain;
         string destination;
         string amount;
