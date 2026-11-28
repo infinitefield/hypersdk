@@ -2399,45 +2399,107 @@ mod tests {
         assert!(perps.iter().any(|m| m.name == "ETH"));
     }
 
+    /// Answers `/info` from fixtures, one request per connection.
     #[cfg(feature = "http")]
-    #[test]
-    fn collateral_token_is_matched_by_index() {
-        // Trimmed testnet `spotMeta`. The `par` dex reports `collateralToken: 3032`, which is
-        // the index of USDPR and not a position: the full array has 1682 tokens.
-        let spot: SpotTokens = serde_json::from_str(
-            r#"{
-                "universe": [],
-                "tokens": [
-                    {
-                        "name": "USDC",
-                        "szDecimals": 8,
-                        "weiDecimals": 8,
-                        "index": 0,
-                        "tokenId": "0xeb62eee3685fc4c43992febcd9e75443",
-                        "isCanonical": true,
-                        "evmContract": null,
-                        "fullName": null
-                    },
-                    {
-                        "name": "USDPR",
-                        "szDecimals": 2,
-                        "weiDecimals": 8,
-                        "index": 3032,
-                        "tokenId": "0x8b36c9269f2331c61c83e15884b5835a",
-                        "isCanonical": false,
-                        "evmContract": null,
-                        "fullName": "Perpetual Alpha USD (rehearsal)"
-                    }
-                ]
-            }"#,
-        )
-        .unwrap();
+    async fn serve_info(
+        listener: tokio::net::TcpListener,
+        spot_meta: &'static str,
+        meta: &'static str,
+    ) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-        let collateral = collateral_token(&spot.tokens, 3032).unwrap();
-        assert_eq!(collateral.name, "USDPR");
-        assert_eq!(collateral.index, 3032);
-        // USDPR sits at position 1, but no token has index 1.
-        assert!(collateral_token(&spot.tokens, 1).is_err());
+        loop {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0; 1024];
+            let body = loop {
+                let read = socket.read(&mut chunk).await.unwrap();
+                assert!(read > 0, "client closed before sending the request");
+                request.extend_from_slice(&chunk[..read]);
+                let text = String::from_utf8_lossy(&request);
+                let Some((head, body)) = text.split_once("\r\n\r\n") else {
+                    continue;
+                };
+                let length: usize = head
+                    .lines()
+                    .filter_map(|line| line.split_once(':'))
+                    .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+                    .map(|(_, value)| value.trim().parse().unwrap())
+                    .unwrap();
+                if body.len() >= length {
+                    break body.to_owned();
+                }
+            };
+            let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+            let payload = match request["type"].as_str() {
+                Some("spotMeta") => spot_meta,
+                Some("meta") => meta,
+                other => panic!("unexpected info request: {other:?}"),
+            };
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}",
+                payload.len()
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+        }
+    }
+
+    #[cfg(feature = "http")]
+    #[tokio::test]
+    async fn perp_markets_match_the_collateral_token_by_index() {
+        // Token indices have gaps. `collateralToken: 1` is USDX, while position 1 of the
+        // array holds PURR, so indexing the array would silently return the wrong token.
+        let spot_meta = r#"{
+            "universe": [],
+            "tokens": [
+                {
+                    "name": "USDC",
+                    "szDecimals": 8,
+                    "weiDecimals": 8,
+                    "index": 0,
+                    "tokenId": "0x6d1e7cde53ba9467b783cb7c530ce054",
+                    "isCanonical": true,
+                    "evmContract": null,
+                    "fullName": null
+                },
+                {
+                    "name": "PURR",
+                    "szDecimals": 0,
+                    "weiDecimals": 5,
+                    "index": 7,
+                    "tokenId": "0xc1fb593aeffbeb02f85e0308e9956a90",
+                    "isCanonical": true,
+                    "evmContract": null,
+                    "fullName": null
+                },
+                {
+                    "name": "USDX",
+                    "szDecimals": 2,
+                    "weiDecimals": 8,
+                    "index": 1,
+                    "tokenId": "0x8b36c9269f2331c61c83e15884b5835a",
+                    "isCanonical": false,
+                    "evmContract": null,
+                    "fullName": null
+                }
+            ]
+        }"#;
+        let meta = r#"{
+            "universe": [{ "name": "BTC", "szDecimals": 5, "maxLeverage": 40 }],
+            "collateralToken": 1
+        }"#;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(serve_info(listener, spot_meta, meta));
+
+        let markets = perp_markets(url, reqwest::Client::new(), None)
+            .await
+            .unwrap();
+
+        assert_eq!(markets.len(), 1);
+        assert_eq!(markets[0].collateral.index, 1);
+        assert_eq!(markets[0].collateral.name, "USDX");
     }
 
     #[cfg(feature = "http")]
